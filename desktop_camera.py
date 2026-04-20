@@ -28,6 +28,7 @@ import threading
 from datetime import datetime
 
 import cv2
+import numpy as np
 import requests
 import websocket  # websocket-client
 
@@ -61,9 +62,8 @@ SLOT_COUNT = args.slots
 # ------------------------- Kamera Thread -------------------------------
 class CameraReaderThread(QThread):
     """LPR Engine MJPEG stream okuyucu.
-    Kamera çakışmasını önlemek için doğrudan webcam/RTSP açmak yerine
-    detector.py'nin (port 5001) sunduğu canlı MJPEG akışını çeker.
-    Bonus: Plaka kutusu overlay'leri detector tarafından zaten çiziliyor.
+    cv2.VideoCapture(HTTP) hang sorunlarından kaçınmak için
+    `requests` ile chunked streaming + manuel MJPEG parse yapar.
     """
     frame_ready = pyqtSignal(int, object)
     status_changed = pyqtSignal(int, str)
@@ -72,76 +72,95 @@ class CameraReaderThread(QThread):
         super().__init__(parent)
         self.slot = slot
         self.engine_url = engine_url
-        self._enabled = False  # config geldiğinde aktif olur
+        self._enabled = False
         self._running = True
 
     def set_enabled(self, en: bool):
+        if en != self._enabled:
+            print(f"[KAMERA-{self.slot}] set_enabled({en})")
         self._enabled = en
 
     def stop(self):
         self._running = False
 
-    def run(self):
-        cap = None
-        stream_url = f"{self.engine_url}/video_feed/CAM-0{self.slot}"
-        last_frame_t = time.time()
+    def _read_stream(self, url: str):
+        """MJPEG akışını parse eder. Her JPEG kare'yi emit eder."""
+        try:
+            print(f"[KAMERA-{self.slot}] MJPEG baglaniyor: {url}")
+            self.status_changed.emit(self.slot, "BAGLANIYOR")
+            r = requests.get(url, stream=True, timeout=(5, 15))
+            if r.status_code != 200:
+                print(f"[KAMERA-{self.slot}] HTTP {r.status_code} - {url}")
+                self.status_changed.emit(self.slot, "OFFLINE")
+                return False
 
+            print(f"[KAMERA-{self.slot}] MJPEG baglandi (HTTP 200). Akis basliyor...")
+            self.status_changed.emit(self.slot, "ONLINE")
+
+            buf = bytearray()
+            frames_emitted = 0
+            last_log = time.time()
+
+            for chunk in r.iter_content(chunk_size=4096):
+                if not self._running or not self._enabled:
+                    break
+                if not chunk:
+                    continue
+                buf.extend(chunk)
+                # JPEG kare sınırlarını bul
+                while True:
+                    a = buf.find(b'\xff\xd8')
+                    if a < 0:
+                        # JPEG başı yok, buffer'ı küçük tut
+                        if len(buf) > 65536:
+                            del buf[:-2]
+                        break
+                    b = buf.find(b'\xff\xd9', a + 2)
+                    if b < 0:
+                        # JPEG sonu henüz gelmedi
+                        if a > 0:
+                            del buf[:a]
+                        break
+                    jpg = bytes(buf[a:b + 2])
+                    del buf[:b + 2]
+                    try:
+                        arr = np.frombuffer(jpg, dtype=np.uint8)
+                        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            self.frame_ready.emit(self.slot, frame)
+                            frames_emitted += 1
+                            if time.time() - last_log > 10.0:
+                                print(f"[KAMERA-{self.slot}] Akiyor - son 10 sn'de {frames_emitted} kare")
+                                frames_emitted = 0
+                                last_log = time.time()
+                    except Exception as e:
+                        print(f"[KAMERA-{self.slot}] JPEG decode hata: {e}")
+            try: r.close()
+            except Exception: pass
+            return True
+        except requests.exceptions.ConnectionError as e:
+            print(f"[KAMERA-{self.slot}] Baglanti reddedildi (engine kapali mi?): {e}")
+            self.status_changed.emit(self.slot, "OFFLINE")
+            return False
+        except requests.exceptions.Timeout as e:
+            print(f"[KAMERA-{self.slot}] Timeout: {e}")
+            self.status_changed.emit(self.slot, "OFFLINE")
+            return False
+        except Exception as e:
+            print(f"[KAMERA-{self.slot}] HATA: {type(e).__name__}: {e}")
+            self.status_changed.emit(self.slot, "OFFLINE")
+            return False
+
+    def run(self):
+        stream_url = f"{self.engine_url}/video_feed/CAM-0{self.slot}"
         while self._running:
             if not self._enabled:
-                if cap is not None:
-                    try: cap.release()
-                    except Exception: pass
-                    cap = None
                 self.status_changed.emit(self.slot, "BOS")
                 time.sleep(1.0)
                 continue
-
-            if cap is None:
-                self.status_changed.emit(self.slot, "BAGLANIYOR")
-                try:
-                    cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-                    if cap and cap.isOpened():
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                        self.status_changed.emit(self.slot, "ONLINE")
-                        last_frame_t = time.time()
-                        print(f"[KAMERA-{self.slot}] MJPEG baglandi: {stream_url}")
-                    else:
-                        cap = None
-                        self.status_changed.emit(self.slot, "OFFLINE")
-                        time.sleep(2.0)
-                        continue
-                except Exception as e:
-                    print(f"[KAMERA-{self.slot}] HATA: {e}")
-                    cap = None
-                    self.status_changed.emit(self.slot, "OFFLINE")
-                    time.sleep(2.0)
-                    continue
-
-            try:
-                # 10 sn'den fazla frame gelmediyse reconnect
-                if time.time() - last_frame_t > 10.0:
-                    try: cap.release()
-                    except Exception: pass
-                    cap = None
-                    print(f"[KAMERA-{self.slot}] Timeout, yeniden baglanilacak.")
-                    continue
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    time.sleep(0.03)
-                    continue
-                last_frame_t = time.time()
-                self.frame_ready.emit(self.slot, frame)
-                time.sleep(0.01)
-            except Exception as e:
-                try: cap.release()
-                except Exception: pass
-                cap = None
-                self.status_changed.emit(self.slot, "OFFLINE")
-                time.sleep(1.0)
-
-        if cap is not None:
-            try: cap.release()
-            except Exception: pass
+            self._read_stream(stream_url)
+            # Kısa bekleme sonrası yeniden dene
+            time.sleep(2.0)
 
 
 # ----------------------- WebSocket Dinleyici --------------------------
