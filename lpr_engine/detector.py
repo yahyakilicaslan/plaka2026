@@ -61,7 +61,7 @@ latest_frames_lock = threading.Lock()
 
 detection_overlays = {}
 buffer_lock = threading.Lock()
-ocr_queue = queue.Queue(maxsize=20)
+ocr_queue = queue.Queue(maxsize=10)
 api_queue = queue.Queue(maxsize=50)
 engines = []
 engine_map = {} 
@@ -127,16 +127,18 @@ class OpenVINODetector:
             boxes = []
             for row in res:
                 conf = float(row[4])
-                if conf > 0.55:
+                if conf > 0.60:
                     xc, yc, nw, nh = row[:4]
                     x1, y1 = int((xc - nw/2) * (w / 640)), int((yc - nh/2) * (h / 640))
                     x2, y2 = int((xc + nw/2) * (w / 640)), int((yc + nh/2) * (h / 640))
                     x1, y1 = max(0, x1), max(0, y1)
                     x2, y2 = min(w, x2), min(h, y2)
-                    # Min plaka boyutu filtresi (çok küçük kutuları at)
-                    if (x2 - x1) < 40 or (y2 - y1) < 15: continue
+                    # Aşırı küçük/dejenere kutuları at (min 15x6px)
+                    if (x2 - x1) < 15 or (y2 - y1) < 6: continue
                     boxes.append([x1, y1, x2, y2, conf])
-            # NMS benzeri: IoU ile çakışanları ele
+            if not boxes:
+                return []
+            # NMS: IoU ile çakışanları ele (en yüksek confidence tut)
             boxes.sort(key=lambda b: b[4], reverse=True)
             keep = []
             for b in boxes:
@@ -148,11 +150,10 @@ class OpenVINODetector:
                     inter = iw * ih
                     a1 = (b[2]-b[0]) * (b[3]-b[1]); a2 = (k[2]-k[0]) * (k[3]-k[1])
                     union = a1 + a2 - inter
-                    if union > 0 and inter / union > 0.35:
+                    if union > 0 and inter / union > 0.40:
                         ok = False; break
                 if ok: keep.append(b)
                 if len(keep) >= 4: break
-            # Geri dönüşü eski formatla uyumlu tut: [x1,y1,x2,y2]
             return [[b[0], b[1], b[2], b[3]] for b in keep]
 
 try:
@@ -513,10 +514,10 @@ class CameraStream(threading.Thread):
                         display_boxes = current_boxes
                         self.prev_gray = None
 
-                    # Tüm AI kutularını ince çiz
+                    # Tüm AI kutularını çiz (henüz okunmamış ama tespit edilmiş plakalar)
                     for b in display_boxes:
                         bx1, by1, bx2, by2 = int(b[0]), int(b[1]), int(b[2]), int(b[3])
-                        cv2.rectangle(disp, (bx1, by1), (bx2, by2), (255, 255, 255), 1)
+                        cv2.rectangle(disp, (bx1, by1), (bx2, by2), (0, 255, 255), 2)
 
                     # Okunan her plaka için ayrı etiket/kutu çiz
                     for pl in plates_overlay:
@@ -659,7 +660,7 @@ def serve_image(filename):
 if __name__ == "__main__":
     adjust_api_workers(SYSTEM_SETTINGS.get('api_worker_count', 3))
 
-    for w_id in range(1, 5): 
+    for w_id in range(1, 3): 
         OCRWorker(worker_id=w_id).start()
         
     for i in range(1, 5): 

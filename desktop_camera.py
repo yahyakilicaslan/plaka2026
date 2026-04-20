@@ -1,15 +1,18 @@
 """
 ====================================================================
- EVO SMART LPR - DESKTOP KAMERA MONITORÜ (v1.0)
+ EVO SMART LPR - DESKTOP KAMERA MONITORÜ (v1.1)
  --------------------------------------------------------------------
  • 2x2 RAW kamera grid (doğrudan RTSP/WebCam - MJPEG yok)
  • Her kamera için GİRİŞ/ÇIKIŞ etiketi + kamera adı
- • Manuel "KAPI AÇ" butonu (ilgili NodeMCU'yu tetikler)
- • Backend WebSocket'e bağlanır → okunan plakayı durum+bariyerle gösterir
- • Tek başına .exe olarak paketlenebilir (PyInstaller)
+ • CANLI PLAKA OVERLAY: Plaka okunduğunda araç bilgileri üst üste gelir,
+   8 sn sonra otomatik kaybolur (plaka + sahip + site/blok + saat
+   + kamera + yön + durum + bariyer)
+ • Manuel "KAPI AÇ" butonu (ilgili NodeMCU'yu TETİK ASENKRON tetikler
+   → UI donmaz, kamera akışı aksamaz)
+ • Backend WebSocket'e bağlanır → log olaylarını canlı alır
 
  Kullanım:
-   python desktop_camera.py                # normal
+   python desktop_camera.py
    python desktop_camera.py --api http://192.168.1.10:8000
 
  Windows build:
@@ -23,17 +26,17 @@ import time
 import argparse
 import threading
 from datetime import datetime
-from queue import Queue, Empty
 
 import cv2
 import requests
 import websocket  # websocket-client
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPalette
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QImage, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QSizePolicy, QMessageBox
+    QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QSizePolicy,
+    QGraphicsOpacityEffect, QMessageBox
 )
 
 # ---------------------------- Argparse --------------------------------
@@ -51,7 +54,7 @@ SLOT_COUNT = args.slots
 class CameraReaderThread(QThread):
     """RTSP/WebCam RAW okur, son kare'yi paylaşır. MJPEG KULLANMAZ."""
     frame_ready = pyqtSignal(int, object)
-    status_changed = pyqtSignal(int, str)  # slot, "ONLINE"/"OFFLINE"/"BAGLANIYOR"
+    status_changed = pyqtSignal(int, str)
 
     def __init__(self, slot: int, parent=None):
         super().__init__(parent)
@@ -130,13 +133,12 @@ class CameraReaderThread(QThread):
                     continue
                 ok = cap.grab()
                 if not ok:
-                    time.sleep(0.05); continue
+                    time.sleep(0.03); continue
                 ok, frame = cap.retrieve()
                 if not ok or frame is None:
                     time.sleep(0.01); continue
                 last_frame_t = time.time()
                 self.frame_ready.emit(self.slot, frame)
-                # ~30 fps üst limit
                 time.sleep(0.01)
             except Exception:
                 try: cap.release()
@@ -170,8 +172,7 @@ class WSThread(QThread):
                 while self._running:
                     try:
                         msg = ws.recv()
-                        if not msg:
-                            break
+                        if not msg: break
                         data = json.loads(msg)
                         self.event_received.emit(data)
                     except Exception:
@@ -181,6 +182,202 @@ class WSThread(QThread):
             except Exception:
                 pass
             time.sleep(2.0)
+
+
+# ------------------------ HTTP Async Helper ---------------------------
+def _async_http(method: str, url: str, on_done):
+    """UI thread'i bloke etmeden HTTP çağrı yap."""
+    def _run():
+        try:
+            if method == "POST":
+                r = requests.post(url, timeout=3)
+            else:
+                r = requests.get(url, timeout=3)
+            data = r.json() if r.status_code == 200 else {"status": "error", "message": r.text}
+        except Exception as e:
+            data = {"status": "error", "message": str(e)}
+        on_done(data)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# -------------------------- Plaka Overlay Kartı -----------------------
+class PlateOverlay(QFrame):
+    """Kamera görüntüsünün üzerine bindirilen, plaka bilgisi gösteren yüzer kart."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameStyle(QFrame.NoFrame)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setStyleSheet("""
+            QFrame#PlateOverlay {
+                background-color: rgba(11, 14, 20, 0.92);
+                border: 2px solid #6366f1;
+                border-radius: 10px;
+            }
+            QLabel { background: transparent; color: #E2E8F0; border: none; }
+        """)
+        self.setObjectName("PlateOverlay")
+
+        # Satır 1: Plaka (büyük) + DURUM rozeti
+        self.plate_lbl = QLabel("- - -")
+        self.plate_lbl.setAlignment(Qt.AlignCenter)
+        self.plate_lbl.setStyleSheet(
+            "font-family: 'Consolas', monospace; font-size: 26px; font-weight: 900;"
+            "color: #000; background: #ffffff; border: 2px solid #000;"
+            "border-radius: 6px; padding: 4px 12px;"
+        )
+        self.plate_lbl.setMinimumHeight(44)
+
+        self.status_lbl = QLabel("OKUNUYOR")
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        self.status_lbl.setFixedWidth(140)
+        self.status_lbl.setStyleSheet(
+            "font-weight: 900; font-size: 13px; letter-spacing: 1px;"
+            "color: #ffffff; background: #6366f1; border-radius: 6px; padding: 8px;"
+        )
+
+        row1 = QHBoxLayout(); row1.setSpacing(8)
+        row1.addWidget(self.plate_lbl, stretch=1)
+        row1.addWidget(self.status_lbl)
+
+        # Satır 2: Sahip + adres (site/blok)
+        self.owner_lbl = QLabel("<b style='color:#fff'>-</b>")
+        self.owner_lbl.setStyleSheet("font-size: 13px;")
+        self.owner_lbl.setWordWrap(True)
+
+        # Satır 3: Kamera + yön + saat
+        self.meta_lbl = QLabel("")
+        self.meta_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
+
+        # Satır 4: Bariyer durumu (renk ribbonu)
+        self.gate_lbl = QLabel("")
+        self.gate_lbl.setAlignment(Qt.AlignCenter)
+        self.gate_lbl.setStyleSheet(
+            "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+            "color: #ffffff; background: #6366f1; border-radius: 6px; padding: 6px;"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+        layout.addLayout(row1)
+        layout.addWidget(self.owner_lbl)
+        layout.addWidget(self.meta_lbl)
+        layout.addWidget(self.gate_lbl)
+
+        # Opacity efekt (fade-in/out için)
+        self._opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity)
+        self._opacity.setOpacity(0.0)
+
+        self._fade = QPropertyAnimation(self._opacity, b"opacity")
+        self._fade.setDuration(350)
+        self._fade.setEasingCurve(QEasingCurve.OutCubic)
+
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.fade_out)
+
+        self.hide()
+
+    def show_event(self, plate: str, owner: str, site: str, block: str,
+                   camera: str, direction: str, status: str, gate_opened: bool,
+                   timestamp: str):
+        # Plaka
+        self.plate_lbl.setText(plate or "- - -")
+
+        # Durum rengi
+        palette = {
+            "IZINLI":    ("#10b981", "#064e3b", "İZİNLİ"),
+            "MİSAFİR":  ("#f59e0b", "#78350f", "MİSAFİR"),
+            "MISAFIR":  ("#f59e0b", "#78350f", "MİSAFİR"),
+            "YASAKLI":   ("#ef4444", "#7f1d1d", "YASAKLI"),
+            "KOTA_DOLU": ("#ef4444", "#7f1d1d", "KOTA DOLU"),
+        }
+        color, bg, text = palette.get(status, ("#6366f1", "#312e81", status or "SORGULANIYOR"))
+        self.status_lbl.setText(text)
+        self.status_lbl.setStyleSheet(
+            f"font-weight: 900; font-size: 13px; letter-spacing: 1px;"
+            f"color: #ffffff; background: {color}; border-radius: 6px; padding: 8px;"
+        )
+        self.setStyleSheet(f"""
+            QFrame#PlateOverlay {{
+                background-color: rgba(11, 14, 20, 0.93);
+                border: 2px solid {color};
+                border-radius: 10px;
+            }}
+            QLabel {{ background: transparent; color: #E2E8F0; border: none; }}
+        """)
+
+        # Sahip + adres
+        owner_txt = owner or "Tanımsız Araç"
+        addr = ""
+        if site or block:
+            addr = f" <span style='color:#94a3b8'>•</span> <span style='color:#cbd5e1'>{site} {block}</span>"
+        self.owner_lbl.setText(
+            f"<span style='color:#94a3b8;font-size:10px'>SAHİP</span><br>"
+            f"<b style='color:#ffffff;font-size:14px'>{owner_txt}</b>{addr}"
+        )
+
+        # Meta: kamera + yön + saat
+        yon_html = ("<span style='color:#f59e0b;font-weight:700'>ÇIKIŞ</span>"
+                    if direction == "CIKIS"
+                    else "<span style='color:#10b981;font-weight:700'>GİRİŞ</span>")
+        self.meta_lbl.setText(
+            f"<span style='color:#64748b'>KAMERA:</span> <b>{camera or '-'}</b> &nbsp;&nbsp; "
+            f"<span style='color:#64748b'>YÖN:</span> {yon_html} &nbsp;&nbsp; "
+            f"<span style='color:#64748b'>SAAT:</span> <b style='font-family:Consolas;color:#fbbf24'>{timestamp or ''}</b>"
+        )
+
+        # Bariyer durumu
+        if status == "IZINLI" and gate_opened:
+            self.gate_lbl.setText("✓ BARİYER AÇILDI")
+            self.gate_lbl.setStyleSheet(
+                "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+                "color: #ffffff; background: #10b981; border-radius: 6px; padding: 6px;"
+            )
+        elif status == "IZINLI":
+            self.gate_lbl.setText("İZİNLİ (TETİK KAPALI)")
+            self.gate_lbl.setStyleSheet(
+                "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+                "color: #ffffff; background: #f59e0b; border-radius: 6px; padding: 6px;"
+            )
+        elif status == "YASAKLI":
+            self.gate_lbl.setText("✗ YASAKLI ARAÇ - REDDEDİLDİ")
+            self.gate_lbl.setStyleSheet(
+                "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+                "color: #ffffff; background: #ef4444; border-radius: 6px; padding: 6px;"
+            )
+        elif status == "KOTA_DOLU":
+            self.gate_lbl.setText("OTOPARK KOTASI DOLU")
+            self.gate_lbl.setStyleSheet(
+                "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+                "color: #ffffff; background: #ea580c; border-radius: 6px; padding: 6px;"
+            )
+        else:
+            self.gate_lbl.setText("GEÇİŞ İZNİ VERİLMEDİ")
+            self.gate_lbl.setStyleSheet(
+                "font-weight: 800; font-size: 12px; letter-spacing: 1px;"
+                "color: #ffffff; background: #f59e0b; border-radius: 6px; padding: 6px;"
+            )
+
+        self.show()
+        self._fade.stop()
+        self._fade.setStartValue(self._opacity.opacity())
+        self._fade.setEndValue(1.0)
+        self._fade.start()
+        self._hide_timer.start(8000)  # 8 sn sonra fade out
+
+    def fade_out(self):
+        self._fade.stop()
+        self._fade.setStartValue(self._opacity.opacity())
+        self._fade.setEndValue(0.0)
+
+        def _done():
+            if self._opacity.opacity() < 0.05:
+                self.hide()
+
+        self._fade.finished.connect(_done)
+        self._fade.start()
 
 
 # -------------------------- Kamera Widget -----------------------------
@@ -197,7 +394,8 @@ class CameraWidget(QFrame):
             QLabel { color: #E2E8F0; background: transparent; border: none; }
         """)
 
-        self.video_label = QLabel("● BEKLEN\u0130YOR")
+        # Video alanı
+        self.video_label = QLabel("● BEKLENİYOR")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet(
             "background-color: #000; color: #64748b; font-size: 14px;"
@@ -206,7 +404,12 @@ class CameraWidget(QFrame):
         self.video_label.setMinimumSize(320, 240)
         self.video_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Üst bar: kamera adı + giriş/çıkış + durum
+        # Plaka overlay (video üstüne bindirilecek)
+        self.plate_overlay = PlateOverlay(self.video_label)
+        self.plate_overlay.setMinimumWidth(360)
+        self.plate_overlay.setMaximumWidth(520)
+
+        # Üst bar
         self.title_label = QLabel(f"● {self.camera_name}")
         self.title_label.setStyleSheet(
             "color: #ffffff; font-weight: 700; font-size: 13px; padding: 6px 10px;"
@@ -219,32 +422,20 @@ class CameraWidget(QFrame):
 
         self.status_dot = QLabel("OFFLINE")
         self.status_dot.setAlignment(Qt.AlignCenter)
-        self.status_dot.setFixedWidth(80)
+        self.status_dot.setFixedWidth(90)
         self.status_dot.setStyleSheet(
             "color: #ef4444; font-weight: 700; font-size: 10px; padding: 4px 8px;"
             "background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 6px;"
         )
 
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(6)
+        top_bar = QHBoxLayout(); top_bar.setSpacing(6)
         top_bar.addWidget(self.title_label, stretch=1)
         top_bar.addWidget(self.direction_label)
         top_bar.addWidget(self.status_dot)
 
-        # Alt bar: okunan plaka bilgisi + manuel buton
-        self.plate_label = QLabel("- - -")
-        self.plate_label.setAlignment(Qt.AlignCenter)
-        self.plate_label.setStyleSheet(
-            "font-family: 'Consolas', monospace; font-size: 20px; font-weight: 800;"
-            "color: #ffffff; background: rgba(99,102,241,0.15);"
-            "border: 2px solid #6366f1; border-radius: 6px; padding: 6px 10px;"
-        )
-        self.plate_label.setMinimumWidth(140)
-
-        self.status_label = QLabel("Hazır")
-        self.status_label.setStyleSheet(
-            "color: #94a3b8; font-size: 11px; padding: 4px 8px;"
-        )
+        # Alt bar (manuel buton + son işlem)
+        self.info_label = QLabel("Hazır")
+        self.info_label.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 4px 8px;")
 
         self.open_btn = QPushButton("KAPI AÇ")
         self.open_btn.setCursor(Qt.PointingHandCursor)
@@ -257,26 +448,31 @@ class CameraWidget(QFrame):
             }
             QPushButton:hover { background: #10b981; }
             QPushButton:pressed { background: #047857; }
+            QPushButton:disabled { background: #334155; color: #64748b; }
         """)
         self.open_btn.clicked.connect(self.manual_open)
 
-        bottom_bar = QHBoxLayout()
-        bottom_bar.setSpacing(6)
-        bottom_bar.addWidget(self.plate_label, stretch=1)
-        bottom_bar.addWidget(self.status_label, stretch=2)
+        bottom_bar = QHBoxLayout(); bottom_bar.setSpacing(6)
+        bottom_bar.addWidget(self.info_label, stretch=1)
         bottom_bar.addWidget(self.open_btn)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(8, 8, 8, 8); root.setSpacing(6)
         root.addLayout(top_bar)
         root.addWidget(self.video_label, stretch=1)
         root.addLayout(bottom_bar)
 
-        # Plaka timer - 6 sn sonra temizle
-        self._plate_clear_timer = QTimer(self)
-        self._plate_clear_timer.setSingleShot(True)
-        self._plate_clear_timer.timeout.connect(self._clear_plate)
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Overlay'i video etiketinin sağ-üstüne konumla
+        try:
+            ow = min(max(360, int(self.video_label.width() * 0.55)), 520)
+            oh = min(170, int(self.video_label.height() * 0.55))
+            self.plate_overlay.setGeometry(
+                self.video_label.width() - ow - 10, 10, ow, oh
+            )
+        except Exception:
+            pass
 
     def _set_direction_style(self, direction: str):
         self.direction = direction
@@ -298,23 +494,19 @@ class CameraWidget(QFrame):
             self.camera_name = cfg.get("name") or f"CAM-0{self.slot}"
             self.title_label.setText(f"● {self.camera_name}")
             self._set_direction_style(cfg.get("direction") or "GIRIS")
-            # Butonun aktif/pasif durumu
             has_gate = bool(cfg.get("gate_id"))
             self.open_btn.setEnabled(has_gate)
-            if not has_gate:
-                self.open_btn.setToolTip("Bu kameraya kapı atanmamış")
-            else:
-                self.open_btn.setToolTip("")
+            self.open_btn.setToolTip("" if has_gate else "Bu kameraya kapı atanmamış")
         else:
             self.title_label.setText(f"● SLOT {self.slot} (BOŞ)")
             self.open_btn.setEnabled(False)
 
     def set_status(self, status: str):
         palette = {
-            "ONLINE":  ("#10b981", "ONLINE"),
+            "ONLINE":     ("#10b981", "ONLINE"),
             "BAGLANIYOR": ("#f59e0b", "BAĞLANIYOR"),
-            "OFFLINE": ("#ef4444", "OFFLINE"),
-            "BOS":     ("#64748b", "BOŞ SLOT"),
+            "OFFLINE":    ("#ef4444", "OFFLINE"),
+            "BOS":        ("#64748b", "BOŞ SLOT"),
         }
         color, text = palette.get(status, ("#64748b", status))
         self.status_dot.setText(text)
@@ -330,61 +522,64 @@ class CameraWidget(QFrame):
             h, w = frame.shape[:2]
             target_w = max(1, self.video_label.width())
             target_h = max(1, self.video_label.height())
-            # Aspect korumalı ölçeklendirme
             scale = min(target_w / w, target_h / h)
             nw, nh = max(2, int(w * scale)), max(2, int(h * scale))
             small = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
             rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
             qimg = QImage(rgb.data, nw, nh, 3 * nw, QImage.Format_RGB888)
             self.video_label.setPixmap(QPixmap.fromImage(qimg))
+            # Overlay her update'ta geometriyi tazele
+            try:
+                ow = min(max(360, int(self.video_label.width() * 0.55)), 520)
+                oh = min(170, int(self.video_label.height() * 0.55))
+                self.plate_overlay.setGeometry(
+                    self.video_label.width() - ow - 10, 10, ow, oh
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
-    def show_plate_event(self, plate: str, status: str, owner: str, gate_opened: bool, direction: str):
-        self.plate_label.setText(plate)
-        # Durum rengi
-        color = {
-            "IZINLI":    ("#10b981", "#064e3b"),
-            "MİSAFİR":  ("#f59e0b", "#78350f"),
-            "MISAFIR":  ("#f59e0b", "#78350f"),
-            "YASAKLI":   ("#ef4444", "#7f1d1d"),
-            "KOTA_DOLU": ("#ef4444", "#7f1d1d"),
-        }.get(status, ("#6366f1", "#1e293b"))
-        self.plate_label.setStyleSheet(
-            f"font-family: 'Consolas', monospace; font-size: 22px; font-weight: 800;"
-            f"color: #ffffff; background: {color[1]};"
-            f"border: 2px solid {color[0]}; border-radius: 6px; padding: 6px 10px;"
+    def show_plate_event(self, plate: str, status: str, owner: str,
+                         gate_opened: bool, direction: str, camera: str,
+                         site: str, block: str, timestamp: str):
+        self.plate_overlay.show_event(
+            plate=plate, owner=owner, site=site, block=block,
+            camera=camera, direction=direction, status=status,
+            gate_opened=gate_opened, timestamp=timestamp
         )
-        bar = "AÇILDI" if gate_opened else "KAPALI"
-        bar_color = "#10b981" if gate_opened else "#ef4444"
-        self.status_label.setText(
-            f"<span style='color:#94a3b8'>Sahip:</span> <b>{owner or '-'}</b> &nbsp; "
-            f"<span style='color:{color[0]};font-weight:700'>{status}</span> &nbsp; "
-            f"<span style='color:#94a3b8'>Bariyer:</span> "
-            f"<span style='color:{bar_color};font-weight:700'>{bar}</span>"
+        # Alt info barda kısa özet
+        color = {"IZINLI": "#10b981", "YASAKLI": "#ef4444",
+                 "KOTA_DOLU": "#ef4444", "MİSAFİR": "#f59e0b",
+                 "MISAFIR": "#f59e0b"}.get(status, "#6366f1")
+        self.info_label.setText(
+            f"<span style='color:#cbd5e1'>Son:</span> <b style='color:#fff'>{plate}</b> "
+            f"<span style='color:{color};font-weight:700'>{status}</span>"
         )
-        self._plate_clear_timer.start(8000)
-
-    def _clear_plate(self):
-        self.plate_label.setText("- - -")
-        self.plate_label.setStyleSheet(
-            "font-family: 'Consolas', monospace; font-size: 20px; font-weight: 800;"
-            "color: #ffffff; background: rgba(99,102,241,0.15);"
-            "border: 2px solid #6366f1; border-radius: 6px; padding: 6px 10px;"
-        )
-        self.status_label.setText("Hazır")
 
     def manual_open(self):
-        try:
-            r = requests.post(f"{self.api_url}/api/gate/manual-open/{self.slot}", timeout=3)
-            data = r.json() if r.status_code == 200 else {"status": "error", "message": r.text}
-        except Exception as e:
-            data = {"status": "error", "message": str(e)}
-        if data.get("status") == "ok":
-            self.status_label.setText(f"<span style='color:#10b981;font-weight:700'>✓ {data.get('message','Kapı açıldı')}</span>")
-            QTimer.singleShot(4000, lambda: self.status_label.setText("Hazır"))
-        else:
-            QMessageBox.warning(self, "Kapı Açma Hatası", data.get("message", "Bilinmeyen hata"))
+        """Kapı açma — ASENKRON (UI thread donmasın)."""
+        self.open_btn.setEnabled(False)
+        self.open_btn.setText("GÖNDERİLİYOR...")
+        self.info_label.setText("<span style='color:#f59e0b'>Kapıya tetik gönderiliyor...</span>")
+
+        def _on_done(data):
+            # UI güncelleme ana thread'te olmalı → QTimer.singleShot
+            def _apply():
+                self.open_btn.setEnabled(True)
+                self.open_btn.setText("KAPI AÇ")
+                if data.get("status") == "ok":
+                    self.info_label.setText(
+                        f"<span style='color:#10b981;font-weight:700'>✓ {data.get('message','Kapı açıldı')}</span>"
+                    )
+                    QTimer.singleShot(4000, lambda: self.info_label.setText("Hazır"))
+                else:
+                    QMessageBox.warning(self, "Kapı Açma Hatası",
+                                        data.get("message", "Bilinmeyen hata"))
+                    self.info_label.setText("Hazır")
+            QTimer.singleShot(0, _apply)
+
+        _async_http("POST", f"{self.api_url}/api/gate/manual-open/{self.slot}", _on_done)
 
 
 # ----------------------------- Ana Pencere ----------------------------
@@ -397,22 +592,21 @@ class MainWindow(QMainWindow):
 
         self.api_url = api_url
         self.ws_url = ws_url
+        self._site_cache = {}  # plate -> (site, block) cache (hızlı lookup)
 
         central = QWidget(); self.setCentralWidget(central)
         root = QVBoxLayout(central); root.setContentsMargins(12, 12, 12, 12); root.setSpacing(10)
 
-        # Başlık bar
+        # Header
         header = QHBoxLayout()
         title = QLabel("<b style='color:#ffffff;font-size:16px;letter-spacing:1px'>EVO SMART</b> "
                        "<span style='color:#6366f1;font-size:11px;font-family:Consolas'>CANLI MONİTÖR</span>")
         self.status_hdr = QLabel("● Backend: bağlanılıyor")
         self.status_hdr.setStyleSheet("color:#f59e0b; font-weight:700; font-size:11px;")
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.status_hdr)
+        header.addWidget(title); header.addStretch(1); header.addWidget(self.status_hdr)
         root.addLayout(header)
 
-        # 2x2 kamera grid
+        # Kamera grid
         grid = QGridLayout(); grid.setSpacing(10)
         self.cameras = {}
         for i in range(1, slot_count + 1):
@@ -435,27 +629,70 @@ class MainWindow(QMainWindow):
         self.ws.event_received.connect(self._on_ws_event)
         self.ws.start()
 
-        # Config refresh
+        # Config + residents refresh
         self.cfg_timer = QTimer(self)
         self.cfg_timer.timeout.connect(self.refresh_cameras)
-        self.cfg_timer.start(5000)
+        self.cfg_timer.start(8000)
         QTimer.singleShot(200, self.refresh_cameras)
 
+        self.res_timer = QTimer(self)
+        self.res_timer.timeout.connect(self.refresh_residents)
+        self.res_timer.start(60000)  # 60 sn bir tüm sakinleri cache'le
+        QTimer.singleShot(500, self.refresh_residents)
+
     def refresh_cameras(self):
-        try:
-            r = requests.get(f"{self.api_url}/api/cameras", timeout=3)
-            if r.status_code == 200:
-                cams = r.json()
-                by_slot = {c.get("slot"): c for c in cams}
+        def _on_done(cams):
+            if not isinstance(cams, list): return
+            by_slot = {c.get("slot"): c for c in cams}
+            def _apply():
                 self.status_hdr.setText("● Backend: bağlı")
                 self.status_hdr.setStyleSheet("color:#10b981; font-weight:700; font-size:11px;")
                 for slot, w in self.cameras.items():
                     cfg = by_slot.get(slot)
                     w.set_config(cfg)
                     self.readers[slot].set_config(cfg)
-        except Exception:
-            self.status_hdr.setText("● Backend: OFFLINE")
-            self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
+            QTimer.singleShot(0, _apply)
+
+        def _on_err():
+            def _apply():
+                self.status_hdr.setText("● Backend: OFFLINE")
+                self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
+            QTimer.singleShot(0, _apply)
+
+        def _run():
+            try:
+                r = requests.get(f"{self.api_url}/api/cameras", timeout=3)
+                if r.status_code == 200:
+                    _on_done(r.json())
+                else:
+                    _on_err()
+            except Exception:
+                _on_err()
+        threading.Thread(target=_run, daemon=True).start()
+
+    def refresh_residents(self):
+        """Plaka → (site, blok) hızlı cache."""
+        def _run():
+            try:
+                r = requests.get(f"{self.api_url}/api/residents", timeout=5)
+                if r.status_code == 200:
+                    res = r.json()
+                    cache = {}
+                    for person in res:
+                        site = person.get("site_name", "") or ""
+                        block = person.get("block_name", "") or ""
+                        flat = person.get("flat_number", "") or ""
+                        for p in person.get("plates", []):
+                            plate_txt = (p.get("plate") or "").upper().replace(" ", "")
+                            if plate_txt:
+                                cache[plate_txt] = {
+                                    "site": site, "block": block,
+                                    "flat": flat, "name": person.get("name", "")
+                                }
+                    self._site_cache = cache
+            except Exception:
+                pass
+        threading.Thread(target=_run, daemon=True).start()
 
     def _on_frame(self, slot, frame):
         w = self.cameras.get(slot)
@@ -475,18 +712,30 @@ class MainWindow(QMainWindow):
                 return
             w = self.cameras.get(slot)
             if w:
+                plate = (data.get("plate") or "").upper().replace(" ", "")
+                info = self._site_cache.get(plate, {})
+                site = info.get("site", "")
+                block = info.get("block", "")
+                # Backend'den gelen owner zaten "Blok / İsim" formatında
+                owner = data.get("owner", "") or ""
+                if not owner and info.get("name"):
+                    owner = info["name"]
+                ts = (data.get("time") or data.get("timestamp") or "").strip()
                 w.show_plate_event(
-                    data.get("plate", ""),
-                    data.get("status", ""),
-                    data.get("owner", ""),
-                    bool(data.get("gate_opened")),
-                    data.get("direction", ""),
+                    plate=plate,
+                    status=data.get("status", ""),
+                    owner=owner,
+                    gate_opened=bool(data.get("gate_opened")),
+                    direction=data.get("direction", ""),
+                    camera=w.camera_name,
+                    site=site, block=block,
+                    timestamp=ts,
                 )
         elif t == "manual_open":
             slot = data.get("slot")
             w = self.cameras.get(slot)
             if w:
-                w.status_label.setText(
+                w.info_label.setText(
                     f"<span style='color:#10b981;font-weight:700'>✓ Manuel açıldı: {data.get('door','')}</span>"
                 )
 
