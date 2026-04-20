@@ -249,12 +249,12 @@
                                             {{ (log.direction === 'CIKIS') ? 'ÇIKIŞ' : 'GİRİŞ' }}
                                         </span>
                                     </div>
-                                    <!-- Bariyer durumu altta (ribbon) -->
+                                    <!-- Alt ribbon: duruma gore mesaj -->
                                     <div class="absolute bottom-0 left-0 right-0 px-2 py-1 flex items-center justify-between backdrop-blur-md"
-                                         :class="log.gate_opened ? 'bg-emerald-600/70' : 'bg-red-600/70'">
-                                        <span class="text-[9px] text-white font-bold uppercase tracking-wider">
-                                            <i :class="log.gate_opened ? 'fas fa-door-open' : 'fas fa-door-closed'" class="mr-1"></i>
-                                            {{ log.gate_opened ? 'BARİYER AÇILDI' : 'BARİYER KAPALI' }}
+                                         :class="getRibbonClass(log)">
+                                        <span class="text-[9px] text-white font-bold uppercase tracking-wider flex items-center gap-1">
+                                            <i :class="getRibbonIcon(log)"></i>
+                                            {{ getRibbonText(log) }}
                                         </span>
                                     </div>
                                 </div>
@@ -876,6 +876,31 @@
                 if (s === 'IZINLI') return 'border-emerald-500/40 hover:border-emerald-500 hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]';
                 if (s === 'YASAKLI' || s === 'KOTA_DOLU') return 'border-red-500/40 hover:border-red-500 hover:shadow-[0_0_20px_rgba(239,68,68,0.3)]';
                 return 'border-yellow-500/40 hover:border-yellow-500 hover:shadow-[0_0_20px_rgba(245,158,11,0.3)]';
+            },
+            getRibbonClass(log) {
+                const s = log.status;
+                if (s === 'IZINLI' && log.gate_opened) return 'bg-emerald-600/80';
+                if (s === 'YASAKLI') return 'bg-red-700/85';
+                if (s === 'KOTA_DOLU') return 'bg-orange-700/85';
+                if (s === 'MİSAFİR' || s === 'MISAFIR') return 'bg-yellow-600/80';
+                return 'bg-gray-600/70';
+            },
+            getRibbonIcon(log) {
+                const s = log.status;
+                if (s === 'IZINLI' && log.gate_opened) return 'fas fa-door-open';
+                if (s === 'YASAKLI') return 'fas fa-ban';
+                if (s === 'KOTA_DOLU') return 'fas fa-parking';
+                if (s === 'MİSAFİR' || s === 'MISAFIR') return 'fas fa-user-clock';
+                return 'fas fa-door-closed';
+            },
+            getRibbonText(log) {
+                const s = log.status;
+                if (s === 'IZINLI' && log.gate_opened) return 'BARİYER AÇILDI';
+                if (s === 'IZINLI' && !log.gate_opened) return 'İZİNLİ (TETİK KAPALI)';
+                if (s === 'YASAKLI') return 'YASAKLI ARAÇ — REDDEDİLDİ';
+                if (s === 'KOTA_DOLU') return 'OTOPARK KOTASI DOLU';
+                if (s === 'MİSAFİR' || s === 'MISAFIR') return 'GEÇİŞ İZNİ VERİLMEDİ';
+                return 'BARİYER KAPALI';
             },
             getBadgeClass(s) { if(s==='IZINLI') return 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'; if(s==='YASAKLI' || s==='KOTA_DOLU') return 'bg-red-500/20 text-red-500 border border-red-500/30'; return 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30'; },
             getGateBadgeClass(log) { return log.gate_opened ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30' : 'bg-red-500/20 text-red-500 border-red-500/30'; },

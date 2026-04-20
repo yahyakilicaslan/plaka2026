@@ -10,7 +10,6 @@ echo   EVO SMART TEKNOLOJI - SISTEM KURULUM VE BASLATMA
 echo ======================================================
 echo.
 
-:: ADIM 1: Python Kontrolü
 echo [1/6] Python surumu kontrol ediliyor...
 py --version >nul 2>&1
 if errorlevel 1 (
@@ -23,7 +22,6 @@ if errorlevel 1 (
 echo Python bulundu.
 echo.
 
-:: ADIM 2: Sanal Ortam (venv) Kurulumu ve Aktivasyonu
 echo [2/6] Sanal ortam (venv) kontrol ediliyor...
 if not exist venv\ (
     echo [BILGI] Sanal ortam bulunamadi. Sifirdan olusturuluyor...
@@ -39,23 +37,19 @@ if not exist venv\ (
     echo [BILGI] Sanal ortam zaten mevcut.
 )
 
-:: Ana pencere icin sanal ortami aktif et (Kurulumlar icin gerekli)
 echo [BILGI] Sanal ortam aktif ediliyor...
 call venv\Scripts\activate
 echo.
 
-:: ADIM 3: requirements.txt Kontrolü ve Kutuphane Kurulumu
 echo [3/6] Gerekli kutuphaneler kontrol ediliyor (requirements.txt)...
 echo ------------------------------------------------------
 if not exist requirements.txt (
     color 0C
     echo [HATA] requirements.txt bulunamadi!
-    echo Bat dosyasi ile ayni klasorde olmali.
     pause
     exit /b
 )
 
-:: Venv icindeki pip'i guncelle ve kutuphaneleri kur
 py -m pip install --upgrade pip >nul 2>&1
 py -m pip install -r requirements.txt
 
@@ -65,7 +59,7 @@ if errorlevel 1 (
     echo ======================================================
     echo [KRITIK HATA] Kutuphaneler yuklenemedi!
     echo ======================================================
-    echo GERCEKCI Sebepler:
+    echo Olasi sebepler:
     echo - Internet yok
     echo - Python surumu uyumsuz
     echo - requirements.txt icinde gecersiz paket var
@@ -78,7 +72,6 @@ echo [BASARILI] Tum kutuphaneler hazir (Sanal Ortam icinde).
 echo ------------------------------------------------------
 echo.
 
-:: ADIM 4: Klasor Kontrolu
 echo [4/6] Klasorler kontrol ediliyor...
 if not exist captured_images (
     mkdir captured_images
@@ -88,12 +81,8 @@ if not exist captured_images (
 )
 echo.
 
-:: ADIM 5: Sistem Baslatma
 echo [5/6] Sistem baslatiliyor...
 echo.
-
-:: NOT: Yeni acilan pencerelerde sanal ortamin aktif olmasi icin 
-:: "venv\Scripts\activate && python ..." seklinde baslatiyoruz.
 
 if exist backend\main.py (
     echo - Backend baslatiliyor...

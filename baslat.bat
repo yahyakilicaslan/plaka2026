@@ -19,17 +19,17 @@ if not exist venv\ (
 )
 
 echo [1/4] Backend (API) baslatiliyor...
-start "LPR_BACKEND" cmd /k "chcp 65001 && venv\Scripts\activate && python backend\main.py"
+start "LPR_BACKEND" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python backend\main.py"
 
 timeout /t 3 >nul
 
 echo [2/4] Yapay Zeka Motoru (LPR) baslatiliyor...
-start "LPR_ENGINE" cmd /k "chcp 65001 && venv\Scripts\activate && python lpr_engine\detector.py"
+start "LPR_ENGINE" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python lpr_engine\detector.py"
 
 timeout /t 4 >nul
 
 echo [3/4] Masaustu Kamera Monitoru baslatiliyor...
-start "LPR_DESKTOP_CAMERA" cmd /k "chcp 65001 && venv\Scripts\activate && python desktop_camera.py"
+start "LPR_DESKTOP_CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python desktop_camera.py"
 
 timeout /t 2 >nul
 

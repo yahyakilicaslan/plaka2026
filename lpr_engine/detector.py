@@ -297,7 +297,11 @@ class OCRWorker(threading.Thread):
             cam.plate_buffers[p] = [x for x in buf if now - x[2] < 5.0]
             buf = cam.plate_buffers[p]
             
-            if len(buf) >= SYSTEM_SETTINGS['vote_accept']:
+            # HIZLI ONAY: Tek okumada güven >= 0.90 ise anında geçir
+            high_conf_fast = (len(buf) >= 1 and conf >= 0.90)
+            vote_ok = len(buf) >= SYSTEM_SETTINGS['vote_accept']
+            
+            if vote_ok or high_conf_fast:
                 avg_conf = sum(x[0] for x in buf) / len(buf)
                 # En güncel box'ı kullan
                 best_box = buf[-1][1]
