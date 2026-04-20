@@ -11,7 +11,7 @@ echo ======================================================
 echo.
 
 :: ADIM 1: Python Kontrolü
-echo [1/5] Python surumu kontrol ediliyor...
+echo [1/6] Python surumu kontrol ediliyor...
 py --version >nul 2>&1
 if errorlevel 1 (
     color 0C
@@ -24,7 +24,7 @@ echo Python bulundu.
 echo.
 
 :: ADIM 2: Sanal Ortam (venv) Kurulumu ve Aktivasyonu
-echo [2/5] Sanal ortam (venv) kontrol ediliyor...
+echo [2/6] Sanal ortam (venv) kontrol ediliyor...
 if not exist venv\ (
     echo [BILGI] Sanal ortam bulunamadi. Sifirdan olusturuluyor...
     py -m venv venv
@@ -45,7 +45,7 @@ call venv\Scripts\activate
 echo.
 
 :: ADIM 3: requirements.txt Kontrolü ve Kutuphane Kurulumu
-echo [3/5] Gerekli kutuphaneler kontrol ediliyor (requirements.txt)...
+echo [3/6] Gerekli kutuphaneler kontrol ediliyor (requirements.txt)...
 echo ------------------------------------------------------
 if not exist requirements.txt (
     color 0C
@@ -79,7 +79,7 @@ echo ------------------------------------------------------
 echo.
 
 :: ADIM 4: Klasor Kontrolu
-echo [4/5] Klasorler kontrol ediliyor...
+echo [4/6] Klasorler kontrol ediliyor...
 if not exist captured_images (
     mkdir captured_images
     echo [BILGI] captured_images olusturuldu.
@@ -89,7 +89,7 @@ if not exist captured_images (
 echo.
 
 :: ADIM 5: Sistem Baslatma
-echo [5/5] Sistem baslatiliyor...
+echo [5/6] Sistem baslatiliyor...
 echo.
 
 :: NOT: Yeni acilan pencerelerde sanal ortamin aktif olmasi icin 
@@ -113,13 +113,26 @@ if exist lpr_engine\detector.py (
     echo [UYARI] lpr_engine\detector.py bulunamadi!
 )
 
-timeout /t 5 >nul
+timeout /t 4 >nul
 
-echo - Tarayici aciliyor...
+if exist desktop_camera.py (
+    echo - Masaustu Kamera Monitoru baslatiliyor...
+    start "LPR DESKTOP CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python desktop_camera.py"
+) else (
+    color 0E
+    echo [UYARI] desktop_camera.py bulunamadi!
+)
+
+timeout /t 3 >nul
+
+echo [6/6] Tarayici aciliyor...
 start http://localhost:8000
 
 echo.
 echo ======================================================
 echo [BILGI] Sistem calisiyor. Bu pencereyi kapatmayin.
+echo   - Dashboard  : http://localhost:8000
+echo   - LPR Engine : http://localhost:5001
+echo   - Kamera     : Masaustu uygulama (2x2 canli grid)
 echo ======================================================
 pause

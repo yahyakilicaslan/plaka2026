@@ -61,7 +61,7 @@ latest_frames_lock = threading.Lock()
 
 detection_overlays = {}
 buffer_lock = threading.Lock()
-ocr_queue = queue.Queue(maxsize=5)
+ocr_queue = queue.Queue(maxsize=20)
 api_queue = queue.Queue(maxsize=50)
 engines = []
 engine_map = {} 
@@ -126,12 +126,34 @@ class OpenVINODetector:
             res = np.squeeze(res).transpose()
             boxes = []
             for row in res:
-                if row[4] > 0.65:
+                conf = float(row[4])
+                if conf > 0.55:
                     xc, yc, nw, nh = row[:4]
                     x1, y1 = int((xc - nw/2) * (w / 640)), int((yc - nh/2) * (h / 640))
                     x2, y2 = int((xc + nw/2) * (w / 640)), int((yc + nh/2) * (h / 640))
-                    boxes.append([max(0, x1), max(0, y1), min(w, x2), min(h, y2)])
-            return boxes[:1]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                    # Min plaka boyutu filtresi (çok küçük kutuları at)
+                    if (x2 - x1) < 40 or (y2 - y1) < 15: continue
+                    boxes.append([x1, y1, x2, y2, conf])
+            # NMS benzeri: IoU ile çakışanları ele
+            boxes.sort(key=lambda b: b[4], reverse=True)
+            keep = []
+            for b in boxes:
+                ok = True
+                for k in keep:
+                    ix1, iy1 = max(b[0], k[0]), max(b[1], k[1])
+                    ix2, iy2 = min(b[2], k[2]), min(b[3], k[3])
+                    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+                    inter = iw * ih
+                    a1 = (b[2]-b[0]) * (b[3]-b[1]); a2 = (k[2]-k[0]) * (k[3]-k[1])
+                    union = a1 + a2 - inter
+                    if union > 0 and inter / union > 0.35:
+                        ok = False; break
+                if ok: keep.append(b)
+                if len(keep) >= 4: break
+            # Geri dönüşü eski formatla uyumlu tut: [x1,y1,x2,y2]
+            return [[b[0], b[1], b[2], b[3]] for b in keep]
 
 try:
     DETECTOR = OpenVINODetector(os.path.join(MODELS_DIR, 'license_plate_detector.xml'), os.path.join(MODELS_DIR, 'license_plate_detector.bin'))
@@ -159,8 +181,15 @@ class APIWorker(threading.Thread):
                         cam_id = payload.get('camera_id')
                         plt_txt = payload.get('plate')
                         with buffer_lock:
-                            if cam_id in detection_overlays and detection_overlays[cam_id].get('text') == plt_txt:
-                                detection_overlays[cam_id]['status'] = data.get('plate_status', 'MİSAFİR')
+                            ov = detection_overlays.get(cam_id, {})
+                            # Eski alan güncelle
+                            if ov.get('text') == plt_txt:
+                                ov['status'] = data.get('plate_status', 'MİSAFİR')
+                            # Çoklu plaka listesi güncelle
+                            for pl in ov.get('plates', []):
+                                if pl.get('text') == plt_txt:
+                                    pl['status'] = data.get('plate_status', 'MİSAFİR')
+                                    pl['gate_opened'] = data.get('gate_opened', False)
                 except Exception as e:
                     logger.error(f"❌ [API BAĞLANTI HATASI] Backend ile iletişim kurulamadı: {e}")
                 finally:
@@ -257,29 +286,24 @@ class OCRWorker(threading.Thread):
     def process_vote(self, cam, p, frame, conf, box):
         now = time.time()
         with cam.vote_lock:
-            if p == cam.last_sent and (now - cam.last_time < SYSTEM_SETTINGS['debounce_time']): return
+            # Plaka bazlı debounce
+            last_t = cam.last_sent_map.get(p, 0)
+            if (now - last_t) < SYSTEM_SETTINGS['debounce_time']:
+                return
             
-            cam.plate_buffer.append((p, conf, box))
-            if len(cam.plate_buffer) >= SYSTEM_SETTINGS['vote_count']:
-                plate_counts = {}
-                plate_conf_sums = {}
-                for plt, cnf, bx in cam.plate_buffer:
-                    plate_counts[plt] = plate_counts.get(plt, 0) + 1
-                    plate_conf_sums[plt] = plate_conf_sums.get(plt, 0) + cnf
-                
-                valid_plates = [plt for plt, count in plate_counts.items() if count >= SYSTEM_SETTINGS['vote_accept']]
-                
-                if valid_plates:
-                    best_plate = max(valid_plates, key=lambda plt: plate_conf_sums[plt])
-                    avg_conf = plate_conf_sums[best_plate] / plate_counts[best_plate]
-                    best_box = next(bx for plt, cnf, bx in reversed(cam.plate_buffer) if plt == best_plate)
-                    
-                    if best_plate != cam.last_sent or (now - cam.last_time >= SYSTEM_SETTINGS['debounce_time']):
-                        self.finalize_log(cam, best_plate, frame, avg_conf, now, best_box)
-                    
-                    cam.plate_buffer.clear()
-                else:
-                    cam.plate_buffer.pop(0)
+            buf = cam.plate_buffers.setdefault(p, [])
+            buf.append((conf, box, now))
+            # Eski oyları temizle (5 saniyeden eski)
+            cam.plate_buffers[p] = [x for x in buf if now - x[2] < 5.0]
+            buf = cam.plate_buffers[p]
+            
+            if len(buf) >= SYSTEM_SETTINGS['vote_accept']:
+                avg_conf = sum(x[0] for x in buf) / len(buf)
+                # En güncel box'ı kullan
+                best_box = buf[-1][1]
+                self.finalize_log(cam, p, frame, avg_conf, now, best_box)
+                cam.last_sent_map[p] = now
+                cam.plate_buffers[p] = []  # reset
 
     def finalize_log(self, cam, p, frame, conf, now, box):
         timestamp = datetime.now().strftime('%H:%M:%S')
@@ -302,12 +326,26 @@ class OCRWorker(threading.Thread):
             })
         except queue.Full: pass
 
+        # Eski tek-plaka alanları da güncelle (geriye uyum)
         cam.last_sent = p
         cam.last_time = now
         
         with buffer_lock:
-            if cam.camera_id in detection_overlays:
-                detection_overlays[cam.camera_id].update({'text': p, 'timer': now + 4.0, 'status': 'SORGULANIYOR', 'box': box})
+            ov = detection_overlays.setdefault(cam.camera_id, {'boxes': [], 'plates': []})
+            plates_list = ov.setdefault('plates', [])
+            # Aynı plakayı güncelle, yoksa ekle
+            existing = next((pl for pl in plates_list if pl['text'] == p), None)
+            if existing:
+                existing.update({'timer': now + 4.0, 'status': 'SORGULANIYOR', 'box': box})
+            else:
+                plates_list.append({'text': p, 'timer': now + 4.0, 'status': 'SORGULANIYOR', 'box': box})
+            # Süresi dolanları temizle (max 6 eş zamanlı)
+            ov['plates'] = [pl for pl in plates_list if pl.get('timer', 0) > now][-6:]
+            # Eski alanları da güncelle
+            ov['text'] = p
+            ov['timer'] = now + 4.0
+            ov['status'] = 'SORGULANIYOR'
+            ov['box'] = box
 
 
 class CameraStream(threading.Thread):
@@ -318,9 +356,9 @@ class CameraStream(threading.Thread):
         self.config = None
         self.cap = None
         self.conn = False
-        self.plate_buffer = []
-        self.last_sent = ""
-        self.last_time = 0
+        # Çoklu plaka: her plakanın kendi oy buffer'ı
+        self.plate_buffers = {}       # plate_text -> [(conf, box, ts), ...]
+        self.last_sent_map = {}       # plate_text -> last_send_time (debounce)
         self.last_frame_time = time.time()
         
         # EKSİK OLAN VE SİSTEMİ ÇÖKERTEN SATIR DÜZELTİLDİ:
@@ -333,6 +371,11 @@ class CameraStream(threading.Thread):
         self.tracking_points = None
         self.tracked_box = None
         self.last_ai_box = None
+        
+        # Geriye dönük uyumluluk (eski alanlar artık tek-plaka fallback için)
+        self.plate_buffer = []
+        self.last_sent = ""
+        self.last_time = 0
 
     def reconnect(self):
         if self.cap: self.cap.release(); self.cap = None
@@ -363,7 +406,7 @@ class CameraStream(threading.Thread):
                         if self.camera_id in latest_frames: del latest_frames[self.camera_id]
                     with buffer_lock:
                         if self.camera_id in jpeg_buffers: del jpeg_buffers[self.camera_id]
-                        if self.camera_id in detection_overlays: detection_overlays[self.camera_id] = {'boxes': [], 'text': '', 'timer': 0}
+                        if self.camera_id in detection_overlays: detection_overlays[self.camera_id] = {'boxes': [], 'plates': [], 'text': '', 'timer': 0}
                     time.sleep(1)
                     continue
 
@@ -423,16 +466,8 @@ class CameraStream(threading.Thread):
                     except Exception: pass
 
                     current_time = time.time()
-                    is_active = ov.get('text') and current_time < ov.get('timer', 0)
-                    status = ov.get('status', 'SORGULANIYOR')
-
-                    if is_active:
-                        if status == 'IZINLI': box_color = (0, 255, 0) 
-                        elif status in ['YASAKLI', 'KOTA_DOLU']: box_color = (0, 0, 255) 
-                        elif status in ['MİSAFİR', 'MISAFIR']: box_color = (0, 255, 255) 
-                        else: box_color = (255, 255, 255) 
-                    else:
-                        box_color = (255, 255, 255) 
+                    # Overlays: çoklu plaka listesi
+                    plates_overlay = [pl for pl in ov.get('plates', []) if current_time < pl.get('timer', 0)]
 
                     current_boxes = ov.get('boxes', [])
                     display_boxes = []
@@ -459,7 +494,7 @@ class CameraStream(threading.Thread):
                                         self.tracking_points = p1
                                     else:
                                         self.tracked_box = list(ai_box)
-                                display_boxes = [self.tracked_box]
+                                display_boxes = [self.tracked_box] + list(current_boxes[1:])
                             else:
                                 self.last_ai_box = None
                                 self.tracking_points = None
@@ -474,24 +509,33 @@ class CameraStream(threading.Thread):
                         display_boxes = current_boxes
                         self.prev_gray = None
 
+                    # Tüm AI kutularını ince çiz
                     for b in display_boxes:
                         bx1, by1, bx2, by2 = int(b[0]), int(b[1]), int(b[2]), int(b[3])
-                        if is_active:
-                            overlay = disp.copy()
-                            cv2.rectangle(overlay, (bx1, by1), (bx2, by2), box_color, -1)
-                            cv2.addWeighted(overlay, 0.4, disp, 0.6, 0, disp)
-                        thickness = 3 if is_active else 1
-                        cv2.rectangle(disp, (bx1, by1), (bx2, by2), box_color, thickness)
+                        cv2.rectangle(disp, (bx1, by1), (bx2, by2), (255, 255, 255), 1)
 
-                    if is_active:
-                        p_text = ov['text']
-                        if display_boxes:
-                            bx1, by1, bx2, by2 = int(display_boxes[0][0]), int(display_boxes[0][1]), int(display_boxes[0][2]), int(display_boxes[0][3])
-                        elif ov.get('box'):
-                            bx1, by1, bx2, by2 = int(ov['box'][0]), int(ov['box'][1]), int(ov['box'][2]), int(ov['box'][3])
+                    # Okunan her plaka için ayrı etiket/kutu çiz
+                    for pl in plates_overlay:
+                        p_text = pl.get('text', '')
+                        status = pl.get('status', 'SORGULANIYOR')
+                        if status == 'IZINLI': box_color = (0, 255, 0)
+                        elif status in ['YASAKLI', 'KOTA_DOLU']: box_color = (0, 0, 255)
+                        elif status in ['MİSAFİR', 'MISAFIR']: box_color = (0, 255, 255)
+                        else: box_color = (255, 255, 255)
+
+                        pbox = pl.get('box')
+                        if pbox:
+                            bx1, by1, bx2, by2 = int(pbox[0]), int(pbox[1]), int(pbox[2]), int(pbox[3])
                         else:
                             bx1, by1, bx2, by2 = 20, 440, 100, 480
-                        
+
+                        # Yarı saydam dolgu
+                        overlay = disp.copy()
+                        cv2.rectangle(overlay, (bx1, by1), (bx2, by2), box_color, -1)
+                        cv2.addWeighted(overlay, 0.4, disp, 0.6, 0, disp)
+                        cv2.rectangle(disp, (bx1, by1), (bx2, by2), box_color, 3)
+
+                        # Plaka etiketi (TR mavi + plaka)
                         plate_w, plate_h = 140, 34
                         start_x = max(0, bx1)
                         start_y = max(0, by1 - plate_h - 10)
@@ -499,17 +543,17 @@ class CameraStream(threading.Thread):
                         end_x = start_x + plate_w
                         end_y = start_y + plate_h
                         if end_x > 640: start_x = 640 - plate_w; end_x = 640
-                            
+
                         cv2.putText(disp, status, (start_x, max(15, start_y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
                         cv2.rectangle(disp, (start_x, start_y), (end_x, end_y), (255, 255, 255), -1)
                         cv2.rectangle(disp, (start_x, start_y), (end_x, end_y), (0, 0, 0), 1)
-                        
+
                         blue_w = 24
                         cv2.rectangle(disp, (start_x, start_y), (start_x + blue_w, end_y), (255, 0, 0), -1)
                         cv2.putText(disp, "TR", (start_x + 2, end_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
                         cv2.putText(disp, p_text, (start_x + blue_w + 8, end_y - 8), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 0, 0), 2)
 
-                    _, jpeg = cv2.imencode('.jpg', disp, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                    _, jpeg = cv2.imencode('.jpg', disp, [cv2.IMWRITE_JPEG_QUALITY, 50])
                     jpeg_buffers[self.camera_id] = jpeg.tobytes()
 
                 if skip == 0 or self.frame_counter % (skip + 1) == 0:
@@ -611,7 +655,7 @@ def serve_image(filename):
 if __name__ == "__main__":
     adjust_api_workers(SYSTEM_SETTINGS.get('api_worker_count', 3))
 
-    for w_id in range(1, 3): 
+    for w_id in range(1, 5): 
         OCRWorker(worker_id=w_id).start()
         
     for i in range(1, 5): 
@@ -622,7 +666,7 @@ if __name__ == "__main__":
         
     with buffer_lock:
         for c in engines: 
-            detection_overlays[c.camera_id] = {'boxes': [], 'text': '', 'timer': 0}
+            detection_overlays[c.camera_id] = {'boxes': [], 'plates': [], 'text': '', 'timer': 0}
             
     CentralDetector().start()
     

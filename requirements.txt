@@ -16,3 +16,5 @@ openvino==2024.4.0
 paddleocr<=2.7.0
 paddlepaddle==2.6.2
 waitress
+PyQt5==5.15.10
+websocket-client==1.7.0

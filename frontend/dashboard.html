@@ -200,56 +200,85 @@
                     </div>
                 </div>
 
-                <div class="flex-1 flex gap-4 min-h-0">
-                    <div class="flex-[3] h-full" :class="cameraGridClass">
-                        <div v-for="i in 4" :key="i" 
-                             v-show="shouldShowCamera(i)"
-                             class="bg-black rounded-xl border border-white/10 relative overflow-hidden group shadow-lg"
-                             :class="getCameraItemClass(i)">
-                            <div class="absolute top-3 left-3 z-10 px-2 py-1 bg-black/60 backdrop-blur rounded border border-white/10 flex items-center gap-2">
-                                <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="isCameraActive(i) ? 'bg-green-500' : 'bg-red-500'"></div>
-                                <span class="text-[10px] font-bold text-white tracking-wider">{{ getCameraName(i) }}</span>
-                            </div>
-                            <img v-if="cameraSources[i]" :id="'cam'+i" :src="cameraSources[i]" class="camera-feed opacity-90 group-hover:opacity-100 transition duration-500" @error="handleCamError">
-                            <div v-else class="w-full h-full flex items-center justify-center text-gray-700">
-                                <i class="fas fa-spinner fa-spin text-2xl"></i>
-                            </div>
+                <!-- CANLI LOG IZGARASI (kamera görüntüleri desktop uygulamaya taşındı) -->
+                <div class="flex-1 glass rounded-xl p-3 flex flex-col min-h-0 border border-white/10">
+                    <div class="flex items-center justify-between mb-3 shrink-0">
+                        <div class="flex items-center gap-3">
+                            <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                            <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">Canlı Geçiş Akışı</span>
+                            <span class="text-[10px] text-gray-500 font-mono">{{ logs.length }} kayıt</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-indigo-400 font-mono uppercase tracking-widest">
+                                <i class="fas fa-desktop mr-1"></i> Kamera: Masaüstü Monitör
+                            </span>
+                            <button @click="logs=[]" class="text-gray-500 hover:text-white transition text-xs"><i class="fas fa-trash-alt"></i></button>
                         </div>
                     </div>
 
-                    <div class="flex-1 glass rounded-xl flex flex-col overflow-hidden border border-white/10">
-                        <div class="p-3 border-b border-white/10 bg-black/20 flex justify-between items-center shrink-0">
-                            <span class="text-xs font-bold text-gray-300 uppercase tracking-wider">CANLI AKIŞ</span>
-                            <button @click="logs=[]" class="text-gray-500 hover:text-white transition"><i class="fas fa-trash-alt text-xs"></i></button>
-                        </div>
-                        <div class="flex-1 overflow-y-auto p-2 space-y-2 custom-scroll relative">
-                            <transition-group name="list">
-                                <div v-for="log in logs" :key="log.id || (log.plate + log.time)" 
-                                     @click="showDetails(log)"
-                                     class="p-2 rounded-lg border border-white/5 bg-[#151B28] hover:bg-[#1e293b] cursor-pointer transition-all group relative overflow-hidden">
-                                     
-                                    <div class="absolute left-0 top-0 bottom-0 w-1" :class="getStatusColor(log.status)"></div>
-                                    <div class="flex gap-2 pl-2">
-                                        <div class="w-14 h-10 rounded overflow-hidden bg-black/50 flex-shrink-0 border border-white/10">
-                                            <img v-if="log.image_path" :src="log.image_path" class="w-full h-full object-cover" @error="$event.target.style.display='none'">
-                                            <div v-else class="w-full h-full flex items-center justify-center text-gray-700">
-                                                <i class="fas fa-car text-xs"></i>
-                                            </div>
-                                        </div>
-                                        <div class="flex-1 min-w-0">
-                                            <div class="flex justify-between items-center">
-                                                <span class="text-xs font-bold text-white plate-text">{{ log.plate }}</span>
-                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded" :class="getBadgeClass(log.status)">{{ log.status }}</span>
-                                            </div>
-                                            <div class="flex items-center justify-between mt-0.5">
-                                                <span class="text-[9px] text-gray-500 truncate max-w-[80px]">{{ log.owner || 'Tanımsız' }}</span>
-                                                <span class="text-[8px] text-gray-600 font-mono">{{ (log.timestamp || log.time).split(' ')[1] }}</span>
-                                            </div>
-                                        </div>
+                    <div v-if="logs.length === 0" class="flex-1 flex flex-col items-center justify-center text-gray-600">
+                        <i class="fas fa-car-side text-5xl mb-3 opacity-40"></i>
+                        <p class="text-sm">Geçiş bekleniyor...</p>
+                        <p class="text-[10px] text-gray-700 mt-1 font-mono">Canlı kamera görüntüsü masaüstü uygulamada gösterilmektedir.</p>
+                    </div>
+
+                    <div v-else class="flex-1 overflow-y-auto custom-scroll">
+                        <transition-group name="list" tag="div" class="grid grid-cols-4 grid-rows-3 gap-3 auto-rows-fr" style="grid-auto-rows: 1fr;">
+                            <div v-for="log in logs.slice(0, 12)" :key="log.id || (log.plate + log.time)"
+                                 @click="showDetails(log)"
+                                 class="log-card bg-[#0f172a] border rounded-xl overflow-hidden cursor-pointer group relative flex flex-col"
+                                 :class="getCardBorderClass(log.status)">
+                                
+                                <!-- Araç Fotoğrafı -->
+                                <div class="relative flex-1 bg-black overflow-hidden min-h-[110px]">
+                                    <img v-if="log.image_path" :src="log.image_path" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" @error="$event.target.style.display='none'">
+                                    <div v-else class="absolute inset-0 flex items-center justify-center text-gray-800">
+                                        <i class="fas fa-car text-4xl"></i>
+                                    </div>
+                                    <!-- Durum rozeti üstte -->
+                                    <div class="absolute top-2 left-2 flex items-center gap-1.5">
+                                        <span class="text-[9px] font-black px-2 py-0.5 rounded-full backdrop-blur-sm border uppercase tracking-wider" :class="getBadgeClass(log.status)">
+                                            {{ log.status }}
+                                        </span>
+                                    </div>
+                                    <!-- Giriş/Çıkış -->
+                                    <div class="absolute top-2 right-2">
+                                        <span class="text-[9px] font-black px-2 py-0.5 rounded backdrop-blur-sm border uppercase"
+                                            :class="(log.direction === 'CIKIS') ? 'bg-orange-500/30 text-orange-300 border-orange-500/50' : 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50'">
+                                            <i :class="(log.direction === 'CIKIS') ? 'fas fa-sign-out-alt' : 'fas fa-sign-in-alt'" class="mr-0.5"></i>
+                                            {{ (log.direction === 'CIKIS') ? 'ÇIKIŞ' : 'GİRİŞ' }}
+                                        </span>
+                                    </div>
+                                    <!-- Bariyer durumu altta (ribbon) -->
+                                    <div class="absolute bottom-0 left-0 right-0 px-2 py-1 flex items-center justify-between backdrop-blur-md"
+                                         :class="log.gate_opened ? 'bg-emerald-600/70' : 'bg-red-600/70'">
+                                        <span class="text-[9px] text-white font-bold uppercase tracking-wider">
+                                            <i :class="log.gate_opened ? 'fas fa-door-open' : 'fas fa-door-closed'" class="mr-1"></i>
+                                            {{ log.gate_opened ? 'BARİYER AÇILDI' : 'BARİYER KAPALI' }}
+                                        </span>
                                     </div>
                                 </div>
-                            </transition-group>
-                        </div>
+                                
+                                <!-- Alt bilgi: plaka + kamera + saat -->
+                                <div class="p-2 bg-[#0B0E14] border-t border-white/5 space-y-1">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-1.5 bg-white rounded px-2 py-1 shadow-inner">
+                                            <span class="text-[8px] font-black text-white bg-blue-600 px-1 rounded">TR</span>
+                                            <span class="plate-text text-black text-[13px] font-black">{{ log.plate }}</span>
+                                        </div>
+                                        <span class="text-[9px] text-gray-500 font-mono">{{ (log.timestamp || log.time || '').split(' ')[1] }}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-[9px] text-gray-400">
+                                        <span class="truncate max-w-[60%]" :title="log.owner || 'Misafir'">
+                                            <i class="fas fa-user mr-1 text-gray-600"></i>{{ log.owner || 'Misafir' }}
+                                        </span>
+                                        <span class="font-mono text-gray-500">
+                                            <i class="fas fa-video mr-1 text-gray-600"></i>{{ log.camera }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </transition-group>
                     </div>
                 </div>
             </div>
@@ -799,12 +828,6 @@
             this.connectWS(); this.fetchData(); this.fetchDailyStats(); this.fetchOcrStatus();
             setInterval(() => this.currentTime = new Date().toLocaleTimeString('tr-TR'), 1000); 
             setInterval(() => this.fetchOcrStatus(), 5000);
-            
-            // DÜZELTME: Tarayıcının donmasını engelleyen, sayfa yüklenince kameraları açan gecikmeli yapı.
-            window.addEventListener('load', () => {
-                setTimeout(() => { this.startCameraFeeds(); }, 500);
-            });
-            setTimeout(() => { if (!this.cameraSources[1]) this.startCameraFeeds(); }, 2000); // Fallback
 
             const today = new Date();
             const yyyy = today.getFullYear();
@@ -849,6 +872,11 @@
             async fetchDailyStats() { try { const res = await fetch('/api/stats/today'); if (res.ok) this.dailyStats = await res.json(); } catch(e) {} },
             async fetchOcrStatus() { try { const res = await fetch('http://localhost:5001/ocr-status'); if (res.ok) { this.ocrStatus = await res.json(); } } catch (e) {} },
             getStatusColor(s) { if(s==='IZINLI') return 'border-l-emerald-500'; if(s==='YASAKLI' || s==='KOTA_DOLU') return 'border-l-red-500'; return 'border-l-yellow-500'; },
+            getCardBorderClass(s) {
+                if (s === 'IZINLI') return 'border-emerald-500/40 hover:border-emerald-500 hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]';
+                if (s === 'YASAKLI' || s === 'KOTA_DOLU') return 'border-red-500/40 hover:border-red-500 hover:shadow-[0_0_20px_rgba(239,68,68,0.3)]';
+                return 'border-yellow-500/40 hover:border-yellow-500 hover:shadow-[0_0_20px_rgba(245,158,11,0.3)]';
+            },
             getBadgeClass(s) { if(s==='IZINLI') return 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'; if(s==='YASAKLI' || s==='KOTA_DOLU') return 'bg-red-500/20 text-red-500 border border-red-500/30'; return 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30'; },
             getGateBadgeClass(log) { return log.gate_opened ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30' : 'bg-red-500/20 text-red-500 border-red-500/30'; },
             getGateStatusText(log) { if (log.status === 'KOTA_DOLU') return 'KOTA DOLU'; return log.gate_opened ? 'GİRİŞ ONAYLANDI' : 'GİRİŞ REDDEDİLDİ'; },
@@ -1025,6 +1053,10 @@
                 ws.onmessage = (e) => {
                     const data = JSON.parse(e.data);
                     if(data.type === 'sys_stats') { this.sysStats = data; return; }
+                    if(data.type === 'manual_open') {
+                        this.addToast('Manuel Kapı Açıldı', `${data.door || ''} (${data.camera || ''})`, 'IZINLI');
+                        return;
+                    }
                     if(data.type === 'log') {
                         const logData = {...data, time: data.time || data.timestamp};
                         

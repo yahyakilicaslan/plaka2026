@@ -186,6 +186,12 @@ LAST_PLATE_INFO = {"plate": "", "owner": "", "status": "", "site": "", "timestam
 
 def init_db():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA temp_store=MEMORY")
+        c.execute("PRAGMA cache_size=-20000")
+    except Exception: pass
     c.execute('CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS blocks (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, name TEXT, flat_count INTEGER)')
     c.execute('CREATE TABLE IF NOT EXISTS residents (id INTEGER PRIMARY KEY AUTOINCREMENT, block_id INTEGER, flat_number INTEGER, name TEXT, phone TEXT)')
@@ -226,6 +232,13 @@ async def broadcast_system_stats():
             await manager.broadcast(msg)
         except: pass
         await asyncio.sleep(5)
+
+def _fire_nodemcu(url: str):
+    """NodeMCU tetik (non-blocking arka plan). Kısa timeout."""
+    try:
+        requests.get(url, timeout=2)
+    except Exception:
+        pass
 
 def send_telegram_alert_sync(token, chat_id, plate, status, owner, image_path, timestamp, cam_slot):
     try:
@@ -389,15 +402,16 @@ async def log_plate(data: PlateLog, background_tasks: BackgroundTasks):
     c.execute("INSERT INTO logs (plate, timestamp, camera_id, image_path, status, owner, direction) VALUES (?, ?, ?, ?, ?, ?, ?)", (data.plate, timestamp, data.camera_id, data.image_path, status, owner, cam_direction))
     conn.commit()
     
-    nodemcu_ip = ""; door_name = data.camera_id
+    nodemcu_ip = ""; door_name = data.camera_id; nodemcu_url = ""
     try:
         gate_info = c.execute("SELECT g.ip_address, g.name as door_name, g.endpoint FROM cameras c JOIN gates g ON c.gate_id = g.id WHERE c.slot = ? LIMIT 1", (slot_num,)).fetchone()
         if gate_info:
             nodemcu_ip = gate_info['ip_address']; door_name = gate_info['door_name']
+            nodemcu_url = f"http://{nodemcu_ip}{gate_info['endpoint']}"
             if granted and gate_trigger_enabled:
-                try: requests.get(f"http://{nodemcu_ip}{gate_info['endpoint']}", timeout=2)
-                except: pass
-    except: pass
+                # Kapı tetiğini arka plana at → yanıt anında dönsün
+                background_tasks.add_task(_fire_nodemcu, nodemcu_url)
+    except Exception: pass
     conn.close()
     
     global LAST_PLATE_INFO
@@ -588,6 +602,46 @@ def update_gate(id: int, g: GateModel):
 def del_gate(id: int):
     with sqlite3.connect(DB_PATH) as conn: conn.execute("DELETE FROM gates WHERE id=?", (id,))
     return {"status": "ok"}
+
+@app.post("/api/gate/test/{gate_id}")
+def test_gate(gate_id: int, background_tasks: BackgroundTasks):
+    """Kapı test açma - dashboard 'Cihazlar' sekmesinden tetiklenir."""
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; c = conn.cursor()
+    row = c.execute("SELECT ip_address, endpoint, name FROM gates WHERE id=?", (gate_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"status": "error", "message": "Kapı bulunamadı"}
+    url = f"http://{row['ip_address']}{row['endpoint']}"
+    background_tasks.add_task(_fire_nodemcu, url)
+    return {"status": "ok", "message": f"{row['name']} tetiklendi", "url": url}
+
+@app.post("/api/gate/manual-open/{slot}")
+async def manual_open_gate(slot: int, background_tasks: BackgroundTasks):
+    """Desktop uygulamadan manuel kapı açma. Slot üzerinden ilgili NodeMCU'yu tetikler."""
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; c = conn.cursor()
+    row = c.execute("""SELECT g.ip_address, g.endpoint, g.name as door_name, c.name as cam_name
+                       FROM cameras c LEFT JOIN gates g ON c.gate_id = g.id
+                       WHERE c.slot = ? LIMIT 1""", (slot,)).fetchone()
+    conn.close()
+    if not row or not row['ip_address']:
+        return {"status": "error", "message": f"Slot {slot} için tanımlı kapı yok"}
+    url = f"http://{row['ip_address']}{row['endpoint']}"
+    background_tasks.add_task(_fire_nodemcu, url)
+    timestamp = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    # Dashboard'ı bilgilendir
+    msg = json.dumps({"type": "manual_open", "slot": slot, "camera": row['cam_name'],
+                      "door": row['door_name'], "time": timestamp})
+    await manager.broadcast(msg)
+    return {"status": "ok", "message": f"{row['door_name']} manuel açıldı", "url": url}
+
+@app.get("/api/cameras/slot/{slot}")
+def get_camera_by_slot(slot: int):
+    """Desktop uygulama için hızlı kamera bilgisi (gate dahil)."""
+    conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; c = conn.cursor()
+    row = c.execute("""SELECT c.*, g.name as gate_name, g.ip_address as gate_ip, g.endpoint as gate_endpoint
+                       FROM cameras c LEFT JOIN gates g ON c.gate_id = g.id WHERE c.slot=?""", (slot,)).fetchone()
+    conn.close()
+    return dict(row) if row else {}
 
 @app.get("/api/cameras")
 def get_cams():

@@ -13,26 +13,35 @@ echo.
 if not exist venv\ (
     color 0C
     echo [HATA] Sanal ortam klasoru bulunamadi!
+    echo Once debuglu_n.bat calistirin (ilk kurulum icin).
     pause
     exit /b
 )
 
-echo [1/3] Backend (API) baslatiliyor...
+echo [1/4] Backend (API) baslatiliyor...
 start "LPR_BACKEND" cmd /k "chcp 65001 && venv\Scripts\activate && python backend\main.py"
 
 timeout /t 3 >nul
 
-echo [2/3] Yapay Zeka Motoru (LPR) baslatiliyor...
+echo [2/4] Yapay Zeka Motoru (LPR) baslatiliyor...
 start "LPR_ENGINE" cmd /k "chcp 65001 && venv\Scripts\activate && python lpr_engine\detector.py"
 
 timeout /t 4 >nul
 
-echo [3/3] Tarayici (Dashboard) aciliyor...
+echo [3/4] Masaustu Kamera Monitoru baslatiliyor...
+start "LPR_DESKTOP_CAMERA" cmd /k "chcp 65001 && venv\Scripts\activate && python desktop_camera.py"
+
+timeout /t 2 >nul
+
+echo [4/4] Dashboard (web) aciliyor...
 start http://localhost:8000
 
 echo.
 echo ======================================================
-echo [BASARILI] Sistem bilesenleri acildi ve tarayici baslatildi.
-echo Bu ana pencereyi kapatabilirsiniz.
+echo [BASARILI] Tum sistem bilesenleri acildi.
+echo - Backend API       : http://localhost:8000
+echo - LPR Engine        : http://localhost:5001
+echo - Dashboard (web)   : http://localhost:8000
+echo - Kamera Monitoru   : Masaustu Uygulama
 echo ======================================================
 pause
