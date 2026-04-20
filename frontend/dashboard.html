@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVO SECURITY | AI MONITOR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    colors: {
+                        dark: { 900: '#0f172a', 800: '#1e293b', 700: '#334155' },
+                        brand: { primary: '#6366f1', accent: '#10b981', danger: '#ef4444', warning: '#f59e0b' }
+                    },
+                    boxShadow: {
+                        'neon': '0 0 15px rgba(99, 102, 241, 0.2)',
+                        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #0B0E14;
+            background-image: radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%);
+            color: #E2E8F0;
+            overflow: hidden; 
+        }
+        
+        [v-cloak] { display: none !important; }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .plate-text { font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 1px; }
+        
+        .neo-input {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white; padding: 10px 14px; border-radius: 8px; width: 100%;
+            transition: all 0.3s; font-size: 0.9rem;
+        }
+        .neo-input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); outline: none; background: rgba(15, 23, 42, 1); }
+        
+        .neo-btn {
+            padding: 10px 20px; border-radius: 8px; font-weight: 600; 
+            text-align: center; transition: all 0.2s; cursor: pointer;
+            text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem;
+        }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.3); color: white; }
+        
+        .camera-feed { width: 100%; height: 100%; object-fit: fill; transform: translateZ(0); }
+
+        .list-enter-active, .list-leave-active { transition: all 0.5s cubic-bezier(0.55, 0, 0.1, 1); }
+        .list-enter-from, .list-leave-to { opacity: 0; transform: translateX(-30px); }
+        
+        .slide-up-enter-active { transition: all 0.4s ease-out; }
+        .slide-up-leave-active { transition: all 0.4s ease-in; position: absolute; width: 100%; }
+        .slide-up-enter-from { opacity: 0; transform: translateY(100%); }
+        .slide-up-leave-to { opacity: 0; transform: translateY(-100%); }
+        
+        /* TOAST BİLDİRİM EFEKTLERİ */
+        .toast-enter-active, .toast-leave-active { transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+        .toast-enter-from { opacity: 0; transform: translateX(100px); }
+        .toast-leave-to { opacity: 0; transform: translateY(-50px); }
+    </style>
+</head>
+<body class="h-screen flex text-sm font-sans">
+
+<script>
+    window.audioCtx = null;
+    document.addEventListener('click', function() {
+        if (!window.audioCtx) {
+            window.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } else if (window.audioCtx.state === 'suspended') {
+            window.audioCtx.resume();
+        }
+    }, { once: true });
+</script>
+
+<div id="app" class="w-full h-full flex overflow-hidden relative" v-cloak>
+
+    <div class="fixed top-5 right-5 z-[9999] flex flex-col gap-3 pointer-events-none w-80">
+        <transition-group name="toast">
+            <div v-for="t in toasts" :key="t.id" class="p-4 rounded-xl shadow-2xl flex items-start gap-3 backdrop-blur-md border pointer-events-auto transition-all"
+                 :style="t.type === 'YASAKLI' || t.type === 'KOTA_DOLU' ? 'background: rgba(153,27,27,0.9); border-color: #ef4444; color: white;' : 'background: rgba(6,78,59,0.9); border-color: #10b981; color: white;'">
+                <i :class="t.type === 'YASAKLI' || t.type === 'KOTA_DOLU' ? 'fas fa-exclamation-triangle text-red-400' : 'fas fa-check-circle text-emerald-400'" class="text-2xl mt-0.5"></i>
+                <div class="flex-1 min-w-0">
+                    <h4 class="text-sm uppercase tracking-wider font-bold mb-1">{{ t.title }}</h4>
+                    <p class="text-xs font-medium opacity-90">{{ t.message }}</p>
+                </div>
+            </div>
+        </transition-group>
+    </div>
+
+    <aside class="w-64 glass flex flex-col z-20 border-r border-white/5 flex-shrink-0">
+        <div class="h-20 flex items-center px-6 border-b border-white/5">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white mr-3 shadow-neon">E</div>
+            <div>
+                <h1 class="font-bold text-white text-lg tracking-wide">EVO SMART</h1>
+                <p class="text-[10px] text-indigo-400 tracking-widest font-mono uppercase">V77 STABLE</p>
+            </div>
+        </div>
+
+        <nav class="flex-1 p-4 space-y-2 mt-2 overflow-y-auto">
+            <button v-for="tab in tabs" :key="tab.id" @click="switchTab(tab.id)"
+                :class="currentTab === tab.id ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/50 shadow-neon' : 'text-gray-400 hover:bg-white/5 border-transparent'"
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200 group">
+                <i :class="tab.icon + ' w-5 group-hover:scale-110 transition-transform'"></i> 
+                <span class="font-medium">{{ tab.name }}</span>
+            </button>
+            <a href="/tabela" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent text-gray-400 hover:bg-white/5 transition-all duration-200 group">
+                <i class="fas fa-tv w-5 group-hover:scale-110 transition-transform"></i>
+                <span class="font-medium">Tabela</span>
+                <i class="fas fa-external-link-alt text-xs ml-auto opacity-50"></i>
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-white/5">
+            <div class="bg-black/30 rounded-lg p-3 flex items-center justify-between border border-white/5">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full" :class="connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'"></div>
+                    <span class="text-xs font-mono text-gray-300">{{ connected ? 'ONLINE' : 'OFFLINE' }}</span>
+                </div>
+                <i class="fas fa-server text-gray-600 text-xs"></i>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 bg-black/20 relative h-full">
+        
+        <header class="h-16 flex items-center px-8 justify-between flex-shrink-0 border-b border-white/5 bg-dark-900/50 backdrop-blur-sm">
+            <div>
+                <h2 class="text-xl font-bold text-white tracking-tight">{{ pageTitle }}</h2>
+                <p class="text-xs text-gray-500 mt-0.5">{{ currentTime }}</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex gap-2 bg-black/30 p-1.5 rounded-lg border border-white/5">
+                    <div class="px-2 py-1 rounded text-[9px] font-bold flex items-center gap-1 bg-orange-500/20 text-orange-400">
+                        <i class="fas fa-eye"></i> PADDLE OCR
+                    </div>
+                    <div class="px-2 py-1 rounded text-[9px] font-bold flex items-center gap-1"
+                         :class="settings.mode==='high'?'bg-red-500/20 text-red-400':settings.mode==='medium'?'bg-indigo-500/20 text-indigo-400':'bg-green-500/20 text-green-400'">
+                        <i class="fas fa-tachometer-alt"></i> {{ settings.mode==='high'?'TURBO':settings.mode==='medium'?'NORMAL':'EKO' }}
+                    </div>
+                    <div class="px-2 py-1 rounded bg-white/5 text-[9px] text-gray-300 flex items-center gap-1">
+                        <i class="fas fa-microchip text-blue-400"></i> <span class="font-mono">{{ sysStats.cpu }}%</span>
+                    </div>
+                    <div class="px-3 py-1.5 rounded bg-white/5 text-[10px] text-gray-300 flex items-center gap-2">
+                        <i class="fas fa-memory text-purple-400"></i> <span class="font-mono">{{ sysStats.ram }}%</span>
+                    </div>
+                </div>
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-gray-800 to-gray-700 border border-white/10 flex items-center justify-center shadow-lg cursor-pointer hover:border-white/30 transition">
+                    <i class="fas fa-user text-xs text-gray-300"></i>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-hidden p-4 flex flex-col min-h-0 relative">
+            
+            <div v-if="currentTab === 'dashboard'" class="flex flex-col flex-1 gap-3 min-h-0 pb-16">
+                <div class="grid grid-cols-4 gap-4 shrink-0 h-24">
+                    <div class="glass rounded-xl p-4 relative overflow-hidden border-l-2 border-blue-500 flex items-center justify-between">
+                        <div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Toplam Günlük</p><h3 class="text-3xl font-black text-white">{{ dailyStats.total }}</h3></div>
+                        <div class="w-10 h-10 bg-blue-500/10 rounded flex items-center justify-center text-blue-400"><i class="fas fa-car text-lg"></i></div>
+                    </div>
+                    <div class="glass rounded-xl p-4 relative overflow-hidden border-l-2 border-emerald-500 flex items-center justify-between">
+                        <div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">İzinli</p><h3 class="text-3xl font-black text-emerald-400">{{ dailyStats.allowed }}</h3></div>
+                        <div class="w-10 h-10 bg-emerald-500/10 rounded flex items-center justify-center text-emerald-400"><i class="fas fa-check-circle text-lg"></i></div>
+                    </div>
+                    <div class="glass rounded-xl p-4 relative overflow-hidden border-l-2 border-yellow-500 flex items-center justify-between">
+                        <div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Misafir</p><h3 class="text-3xl font-black text-yellow-400">{{ dailyStats.guest }}</h3></div>
+                        <div class="w-10 h-10 bg-yellow-500/10 rounded flex items-center justify-center text-yellow-400"><i class="fas fa-user-clock text-lg"></i></div>
+                    </div>
+                    <div class="glass rounded-xl p-4 relative overflow-hidden border-l-2 border-red-500 flex items-center justify-between">
+                        <div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Yasaklı</p><h3 class="text-3xl font-black text-red-500">{{ dailyStats.banned }}</h3></div>
+                        <div class="w-10 h-10 bg-red-500/10 rounded flex items-center justify-center text-red-400"><i class="fas fa-ban text-lg"></i></div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex gap-4 min-h-0">
+                    <div class="flex-[3] h-full" :class="cameraGridClass">
+                        <div v-for="i in 4" :key="i" 
+                             v-show="shouldShowCamera(i)"
+                             class="bg-black rounded-xl border border-white/10 relative overflow-hidden group shadow-lg"
+                             :class="getCameraItemClass(i)">
+                            <div class="absolute top-3 left-3 z-10 px-2 py-1 bg-black/60 backdrop-blur rounded border border-white/10 flex items-center gap-2">
+                                <div class="w-1.5 h-1.5 rounded-full animate-pulse" :class="isCameraActive(i) ? 'bg-green-500' : 'bg-red-500'"></div>
+                                <span class="text-[10px] font-bold text-white tracking-wider">{{ getCameraName(i) }}</span>
+                            </div>
+                            <img v-if="cameraSources[i]" :id="'cam'+i" :src="cameraSources[i]" class="camera-feed opacity-90 group-hover:opacity-100 transition duration-500" @error="handleCamError">
+                            <div v-else class="w-full h-full flex items-center justify-center text-gray-700">
+                                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 glass rounded-xl flex flex-col overflow-hidden border border-white/10">
+                        <div class="p-3 border-b border-white/10 bg-black/20 flex justify-between items-center shrink-0">
+                            <span class="text-xs font-bold text-gray-300 uppercase tracking-wider">CANLI AKIŞ</span>
+                            <button @click="logs=[]" class="text-gray-500 hover:text-white transition"><i class="fas fa-trash-alt text-xs"></i></button>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-2 space-y-2 custom-scroll relative">
+                            <transition-group name="list">
+                                <div v-for="log in logs" :key="log.id || (log.plate + log.time)" 
+                                     @click="showDetails(log)"
+                                     class="p-2 rounded-lg border border-white/5 bg-[#151B28] hover:bg-[#1e293b] cursor-pointer transition-all group relative overflow-hidden">
+                                     
+                                    <div class="absolute left-0 top-0 bottom-0 w-1" :class="getStatusColor(log.status)"></div>
+                                    <div class="flex gap-2 pl-2">
+                                        <div class="w-14 h-10 rounded overflow-hidden bg-black/50 flex-shrink-0 border border-white/10">
+                                            <img v-if="log.image_path" :src="log.image_path" class="w-full h-full object-cover" @error="$event.target.style.display='none'">
+                                            <div v-else class="w-full h-full flex items-center justify-center text-gray-700">
+                                                <i class="fas fa-car text-xs"></i>
+                                            </div>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-xs font-bold text-white plate-text">{{ log.plate }}</span>
+                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded" :class="getBadgeClass(log.status)">{{ log.status }}</span>
+                                            </div>
+                                            <div class="flex items-center justify-between mt-0.5">
+                                                <span class="text-[9px] text-gray-500 truncate max-w-[80px]">{{ log.owner || 'Tanımsız' }}</span>
+                                                <span class="text-[8px] text-gray-600 font-mono">{{ (log.timestamp || log.time).split(' ')[1] }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </transition-group>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="currentTab === 'reports'" class="flex-1 flex flex-col min-h-0 bg-dark-900/40 p-2 rounded-xl border border-white/5">
+                <div class="glass p-4 rounded-xl mb-4 shrink-0 flex flex-wrap gap-4 items-end">
+                    <div><label class="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Başlangıç</label><input type="date" v-model="reportFilter.start" class="neo-input py-1 text-xs"></div>
+                    <div><label class="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Bitiş</label><input type="date" v-model="reportFilter.end" class="neo-input py-1 text-xs"></div>
+                    <div><label class="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Plaka / Kişi</label><input type="text" v-model="reportFilter.plate" placeholder="Ara..." class="neo-input py-1 text-xs"></div>
+                    <div><label class="text-[10px] text-gray-400 font-bold uppercase mb-1 block">Durum</label><select v-model="reportFilter.status" class="neo-input py-1 text-xs bg-[#151B28]"><option value="">Tümü</option><option value="IZINLI">İzinli</option><option value="MİSAFİR">Misafir</option><option value="YASAKLI">Yasaklı</option></select></div>
+                    <div class="flex gap-2">
+                        <button @click="loadReports" class="neo-btn btn-primary text-xs py-1.5 px-4"><i class="fas fa-search mr-1"></i> Filtrele</button>
+                        <button @click="exportToPDF" class="neo-btn bg-red-600/80 hover:bg-red-500 text-white text-xs py-1.5 px-4"><i class="fas fa-file-pdf mr-1"></i> PDF Çıktı</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex gap-4 min-h-0">
+                    <div class="flex-1 glass rounded-xl flex flex-col overflow-hidden" id="report-content">
+                        <div class="p-4 border-b border-white/10 flex justify-between items-center bg-black/20">
+                            <h3 class="font-bold text-white"><i class="fas fa-list text-indigo-400 mr-2"></i>Geçiş Kayıtları</h3>
+                            <span class="text-xs text-gray-400">Toplam Kayıt: {{ reportData.length }}</span>
+                        </div>
+                        <div class="flex-1 overflow-auto custom-scroll p-0">
+                            <table class="w-full text-left text-xs text-gray-300">
+                                <thead class="bg-[#1e293b] sticky top-0 border-b border-white/10 z-10">
+                                    <tr>
+                                        <th class="p-3 font-semibold">Tarih / Saat</th>
+                                        <th class="p-3 font-semibold">Kamera / Yön</th>
+                                        <th class="p-3 font-semibold">Plaka</th>
+                                        <th class="p-3 font-semibold">Durum</th>
+                                        <th class="p-3 font-semibold">Araç Sahibi Bilgisi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="r in reportData" :key="r.id" class="border-b border-white/5 hover:bg-white/5 transition">
+                                        <td class="p-3">{{ r.timestamp }}</td>
+                                        <td class="p-3">{{ r.camera_id }} <span class="text-[9px] text-gray-500 block">{{ r.direction }}</span></td>
+                                        <td class="p-3 font-bold plate-font tracking-wider text-white">{{ r.plate }}</td>
+                                        <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px]" :class="getBadgeClass(r.status)">{{ r.status }}</span></td>
+                                        <td class="p-3">{{ r.owner || 'Tanımsız' }}</td>
+                                    </tr>
+                                    <tr v-if="reportData.length === 0"><td colspan="5" class="p-8 text-center text-gray-500">Kayıt bulunamadı. Lütfen filtreyi değiştirin.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="w-80 glass rounded-xl p-4 flex flex-col shrink-0 items-center justify-start gap-4">
+                        <h3 class="font-bold text-white w-full text-left border-b border-white/10 pb-2"><i class="fas fa-chart-pie text-purple-400 mr-2"></i>Dağılım</h3>
+                        <div class="relative w-full aspect-square max-h-64 mt-4"><canvas id="reportChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="currentTab === 'sites'" class="flex-1 overflow-y-auto p-2 flex flex-col gap-6">
+                <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">Site Ekle</h3><div class="flex gap-4 max-w-md"><input v-model="newSiteName" class="neo-input" placeholder="Site Adı"><button @click="addSite" class="neo-btn btn-primary whitespace-nowrap">{{ editingSiteId ? 'GÜNCELLE' : 'EKLE' }}</button><button v-if="editingSiteId" @click="cancelEditSite" class="neo-btn bg-gray-700">İPTAL</button></div></div>
+                <div class="grid grid-cols-2 gap-6"><div v-for="site in sites" :key="site.id" class="glass p-5 rounded-xl"><div class="flex justify-between items-center mb-4"><div class="flex items-center gap-3"><h4 class="text-white font-bold text-lg">{{ site.name }}</h4><button @click="startEditSite(site)" class="text-blue-400 hover:text-white text-xs"><i class="fas fa-pen"></i></button></div><button @click="deleteSite(site.id)" class="btn-danger px-2 py-1 rounded text-xs"><i class="fas fa-trash"></i></button></div><div class="flex gap-2 mb-4 p-3 bg-black/20 rounded-lg"><input v-model="newBlockName[site.id]" class="neo-input text-xs py-1" placeholder="Blok"><input v-model="newBlockCount[site.id]" type="number" class="neo-input text-xs py-1 w-24" placeholder="Daire"><button @click="saveBlock(site.id)" class="btn-primary px-3 py-1 rounded text-xs">{{ editingBlockIds[site.id] ? 'OK' : '+' }}</button><button v-if="editingBlockIds[site.id]" @click="cancelEditBlock(site.id)" class="text-gray-500 hover:text-white"><i class="fas fa-times"></i></button></div><div class="flex flex-wrap gap-2"><div v-for="block in site.blocks" :key="block.id" class="bg-[#1e293b] px-3 py-2 rounded-lg text-center border border-white/5 group relative"><div class="text-white font-bold text-sm">{{ block.name }}</div><div class="text-[10px] text-gray-500">{{ block.flat_count }} Daire</div><button @click="startEditBlock(block, site.id)" class="absolute top-1 right-1 text-blue-400 opacity-0 group-hover:opacity-100 text-[10px]"><i class="fas fa-pen"></i></button></div></div></div></div>
+            </div>
+
+            <div v-else-if="currentTab === 'plates'" class="flex-1 overflow-y-auto grid grid-cols-12 gap-4 p-2">
+                <div class="col-span-4 glass p-4 rounded-xl h-fit"><h3 class="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">{{ editingId ? 'Düzenle' : 'Yeni Kayıt' }}</h3><div class="space-y-3"><div class="grid grid-cols-2 gap-2"><select v-model="selectedSite" class="neo-input bg-[#151B28] text-xs py-1"><option :value="null">Site</option><option v-for="s in sites" :value="s">{{ s.name }}</option></select><select v-if="selectedSite" v-model="selectedBlock" class="neo-input bg-[#151B28] text-xs py-1"><option :value="null">Blok</option><option v-for="b in selectedSite.blocks" :value="b">{{ b.name }}</option></select></div><select v-if="selectedBlock" v-model="resFlat" class="neo-input bg-[#151B28] py-1"><option :value="null">Daire</option><option v-for="n in selectedBlock.flat_count" :value="n">{{ n }}</option></select><input v-model="resName" class="neo-input py-1" placeholder="Ad Soyad"><input v-model="resPhone" class="neo-input py-1" placeholder="Telefon"><div class="bg-black/20 p-2 rounded-lg border border-white/5"><label class="text-[10px] text-gray-400 block mb-1 uppercase font-bold">Plakalar</label><div v-for="(p, idx) in resPlates" :key="idx" class="flex gap-2 mb-1"><input v-model="p.plate" class="neo-input uppercase plate-font py-0.5 text-sm" placeholder="34ABC123"><select v-model="p.status" class="neo-input w-24 bg-[#151B28] text-[10px] py-0.5"><option value="IZINLI">İzinli</option><option value="YASAKLI">Yasaklı</option></select></div><button @click="addPlateInput" v-if="resPlates.length < 5" class="text-[10px] text-indigo-400 hover:text-indigo-300">+ Plaka</button></div><div class="flex gap-2 mt-3"><button @click="saveResident" class="neo-btn btn-primary flex-1 py-1.5 text-sm">KAYDET</button><button v-if="editingId" @click="cancelEdit" class="neo-btn bg-gray-700 text-white flex-1 py-1.5 text-sm">İPTAL</button></div></div></div>
+                <div class="col-span-8 glass p-4 rounded-xl flex flex-col h-[80vh]">
+                    <div class="mb-3">
+                        <h3 class="text-lg font-bold text-white mb-2">Sakin Listesi</h3>
+                        <div class="grid grid-cols-5 gap-2">
+                            <select v-model="filterSite" class="neo-input bg-[#151B28] text-xs py-1"><option value="">Tüm Siteler</option><option v-for="s in sites" :value="s.name">{{ s.name }}</option></select>
+                            <select v-model="filterBlock" class="neo-input bg-[#151B28] text-xs py-1"><option value="">Tüm Bloklar</option><option v-for="b in filterBlockOptions" :value="b">{{ b }}</option></select>
+                            <input v-model="filterFlat" type="number" class="neo-input bg-[#151B28] text-xs py-1" placeholder="Daire No">
+                            <input v-model="searchQuery" class="neo-input text-xs py-1" placeholder="İsim, Telefon, Plaka...">
+                            <button @click="clearFilters" class="neo-btn bg-gray-700 text-white text-xs py-1"><i class="fas fa-times mr-1"></i>Temizle</button>
+                        </div>
+                        <div class="flex justify-between items-center mt-2">
+                            <span class="text-[10px] text-gray-500">{{ filteredResidents.length }} kayıt bulundu</span>
+                            <div class="flex gap-1"><button @click="filterStatus=''" class="px-2 py-0.5 rounded text-[9px]" :class="filterStatus===''?'bg-indigo-600 text-white':'bg-white/5 text-gray-400'">Tümü</button><button @click="filterStatus='IZINLI'" class="px-2 py-0.5 rounded text-[9px]" :class="filterStatus==='IZINLI'?'bg-emerald-600 text-white':'bg-white/5 text-gray-400'">İzinli</button><button @click="filterStatus='YASAKLI'" class="px-2 py-0.5 rounded text-[9px]" :class="filterStatus==='YASAKLI'?'bg-red-600 text-white':'bg-white/5 text-gray-400'">Yasaklı</button></div>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto space-y-2 custom-scroll pr-2">
+                        <div v-for="res in filteredResidents" :key="res.id" class="bg-white/5 p-3 rounded-xl flex justify-between items-center border border-white/5 hover:border-indigo-500/30 transition">
+                            <div class="flex-1 min-w-0">
+                                <div class="font-bold text-white text-sm mb-0.5">{{ res.site_name }} {{ res.block_name }} <span class="text-gray-500 mx-1">|</span> D:{{ res.flat_number }}</div>
+                                <div class="text-xs text-gray-400 mb-1">{{ res.name }} <span class="text-gray-600">•</span> {{ res.phone }}</div>
+                                <div class="flex flex-wrap gap-1"><span v-for="p in res.plates" class="text-[9px] px-1.5 py-0.5 rounded font-mono border font-bold" :class="p.status === 'YASAKLI' ? 'bg-red-500/10 text-red-400 border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'">{{ p.plate }}</span></div>
+                            </div>
+                            <div class="flex gap-2 ml-2"><button @click="startEdit(res)" class="text-blue-400 hover:text-white"><i class="fas fa-edit"></i></button><button @click="deleteResident(res.id)" class="text-red-500 hover:text-white"><i class="fas fa-trash"></i></button></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="currentTab === 'devices'" class="flex-1 overflow-y-auto w-full max-w-5xl grid grid-cols-2 gap-8 p-2">
+                <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2"><i class="fas fa-door-closed text-blue-400"></i> Kapı Yönetimi</h3><div class="space-y-4 mb-6"><input v-model="gateName" class="neo-input" placeholder="Kapı Adı"><div class="grid grid-cols-2 gap-4"><input v-model="gateIp" class="neo-input" placeholder="IP:Port"><input v-model="gateEndpoint" class="neo-input" placeholder="/open"></div><div class="flex gap-2"><button @click="saveGate" class="neo-btn btn-primary flex-1">{{ editingGateId ? 'GÜNCELLE' : 'KAYDET' }}</button><button v-if="editingGateId" @click="cancelEditGate" class="neo-btn bg-gray-700 text-white">İPTAL</button></div></div><div class="space-y-2"><div v-for="g in gates" class="bg-white/5 p-3 rounded-lg flex justify-between items-center border border-white/5"><div class="text-sm text-gray-300"><span class="font-bold text-white">{{ g.name }}</span> <span class="text-xs text-gray-500 ml-2">{{ g.ip_address }}</span></div><div class="flex gap-2"><button @click="startEditGate(g)" class="text-blue-400 hover:text-white text-xs"><i class="fas fa-pen"></i></button><button @click="deleteGate(g.id)" class="text-red-400 hover:text-white"><i class="fas fa-trash"></i></button></div></div></div></div>
+                <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2"><i class="fas fa-video text-emerald-400"></i> Kamera Yönetimi</h3><div class="space-y-4 mb-6"><input v-model="camName" class="neo-input" placeholder="Kamera Adı"><div class="flex gap-4 text-sm text-gray-300 bg-black/20 p-2 rounded-lg border border-white/5"><label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="radio" value="WEBCAM" v-model="camType" class="accent-indigo-500"> Webcam</label><label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="radio" value="RTSP" v-model="camType" class="accent-indigo-500"> RTSP</label></div><input v-model="camSource" class="neo-input" placeholder="ID (0) veya rtsp://"><div v-if="camType==='RTSP'" class="grid grid-cols-2 gap-4"><input v-model="camUser" class="neo-input" placeholder="User"><input v-model="camPass" class="neo-input" placeholder="Pass" type="password"></div><div class="grid grid-cols-3 gap-3"><select v-model="camSlot" class="neo-input bg-[#151B28]"><option :value="null">Slot</option><option v-for="i in 4" :value="i" :disabled="isSlotOccupied(i)">Slot {{i}}</option></select><select v-model="camGateId" class="neo-input bg-[#151B28]"><option :value="null">Kapı</option><option v-for="g in gates" :value="g.id">{{g.name}}</option></select><select v-model="camDirection" class="neo-input bg-[#151B28]"><option value="GIRIS">Giriş</option><option value="CIKIS">Çıkış</option></select></div><div class="flex gap-2"><button @click="saveCamera" class="neo-btn btn-primary flex-1">{{ editingCamId ? 'GÜNCELLE' : 'KAYDET' }}</button><button v-if="editingCamId" @click="cancelEditCam" class="neo-btn bg-gray-700 text-white">İPTAL</button></div></div><div class="space-y-2"><div v-for="c in cameras" class="bg-white/5 p-3 rounded-lg flex justify-between items-center border border-white/5"><div><span class="font-bold text-white text-sm">{{ c.name }}</span> <span class="text-[10px] bg-gray-700 px-1.5 rounded ml-2 text-gray-300">SLOT {{c.slot}}</span><span class="text-[10px] px-1.5 rounded ml-1" :class="c.direction==='CIKIS'?'bg-orange-500/20 text-orange-400':'bg-emerald-500/20 text-emerald-400'">{{ c.direction || 'GİRİŞ' }}</span></div><div class="flex gap-2"><button @click="startEditCam(c)" class="text-blue-400 hover:text-white text-xs"><i class="fas fa-pen"></i></button><button @click="deleteCamera(c.id)" class="text-red-400 hover:text-white text-xs"><i class="fas fa-trash"></i></button></div></div></div></div>
+            </div>
+
+            <div v-else-if="currentTab === 'settings'" class="flex-1 overflow-y-auto p-2">
+                <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+                    
+                    <div class="space-y-6">
+                        <div class="glass p-5 rounded-2xl border border-indigo-500/30">
+                            <h4 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="fas fa-rocket text-indigo-400"></i> İleri Düzey Performans</h4>
+                            
+                            <div class="grid grid-cols-3 gap-2 mb-4">
+                                <button @click="setPerformanceMode('low')" class="py-2 px-1 rounded border transition-all text-xs font-bold" :class="settings.mode === 'low' ? 'bg-green-600 border-green-400 text-white shadow-neon' : 'bg-black/30 border-white/10 text-gray-400 hover:border-green-500'">EKO</button>
+                                <button @click="setPerformanceMode('medium')" class="py-2 px-1 rounded border transition-all text-xs font-bold" :class="settings.mode === 'medium' ? 'bg-indigo-600 border-indigo-400 text-white shadow-neon' : 'bg-black/30 border-white/10 text-gray-400 hover:border-indigo-500'">NORMAL</button>
+                                <button @click="setPerformanceMode('high')" class="py-2 px-1 rounded border transition-all text-xs font-bold" :class="settings.mode === 'high' ? 'bg-red-600 border-red-400 text-white shadow-neon' : 'bg-black/30 border-white/10 text-gray-400 hover:border-red-500'">TURBO</button>
+                            </div>
+
+                            <div class="space-y-4 pt-2 border-t border-white/10">
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-white font-semibold">Kare Atlama (Oto)</span>
+                                    </div>
+                                    <select v-model="settings.frame_skip" @change="saveUltraSettings" class="neo-input text-xs py-2 bg-[#151B28] text-gray-300">
+                                        <option :value="0">Atlama Yok (Turbo)</option>
+                                        <option :value="2">2 Kare Atla (Normal)</option>
+                                        <option :value="4">4 Kare Atla (Eko)</option>
+                                    </select>
+                                    <p class="text-[9px] text-gray-400 mt-1 leading-tight">Yapay zekanın işlemciyi yormamak için kameradaki bazı kareleri es geçmesini sağlar.</p>
+                                </div>
+                                
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-white font-semibold">Motor Hızı (Oto)</span>
+                                    </div>
+                                    <select v-model="settings.ai_interval" @change="saveUltraSettings" class="neo-input text-xs py-2 bg-[#151B28] text-gray-300">
+                                        <option :value="0.02">Saniyede ~50 Kere (Turbo)</option>
+                                        <option :value="0.06">Saniyede ~16 Kere (Normal)</option>
+                                        <option :value="0.10">Saniyede ~10 Kere (Eko)</option>
+                                    </select>
+                                    <p class="text-[9px] text-gray-400 mt-1 leading-tight">Sistemin arka planda plaka arama döngüsünün bekleme süresidir.</p>
+                                </div>
+                                
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-emerald-400 font-bold"><i class="fas fa-bolt"></i> API Kurye Sayısı (Eşzamanlı Sorgu)</span>
+                                    </div>
+                                    <input type="number" v-model="settings.api_worker_count" @change="saveUltraSettings" min="1" max="10" class="neo-input text-xs py-2 bg-[#151B28]">
+                                    <p class="text-[9px] text-gray-400 mt-1 leading-tight">Aynı anda okunan plakaları bekletmeden veritabanına iletecek iş parçacığı sayısı. (Tavsiye: 3-5)</p>
+                                </div>
+
+                                <div class="pt-3 border-t border-white/5 space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-emerald-400 font-bold flex items-center gap-1"><i class="fas fa-bolt"></i> Dinamik Turbo Modu</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Araç görünce kamerayı otomatik olarak %100 güce geçirir, araç geçince tekrar eko moda döner.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.dynamic_turbo" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-emerald-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-purple-400 font-bold flex items-center gap-1"><i class="fas fa-bed"></i> Akıllı Uyku Filtresi</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Kamera karşısında hareket yoksa yapay zekayı uyutarak CPU kullanımını %0'a düşürür.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.motion_sleep" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-purple-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-blue-400 font-bold flex items-center gap-1"><i class="fas fa-microchip"></i> Donanım GPU Hızlandırma</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Desteklenen sistemlerde AI yükünü işlemciden (CPU) alarak Ekran Kartına (GPU/iGPU) verir.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.gpu_acceleration" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div class="glass p-5 rounded-2xl border border-orange-500/30">
+                            <h4 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="fas fa-cogs text-orange-400"></i> Plaka Okuma & Doğrulama (Vote)</h4>
+                            
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-white font-semibold">Harf Güven Eşiği (OCR)</span>
+                                        <span class="text-xs text-orange-400 font-mono font-bold">%"{{ Math.round(settings.ocr_conf_threshold * 100) }}"</span>
+                                    </div>
+                                    <input type="range" v-model.number="settings.ocr_conf_threshold" @change="saveUltraSettings" min="0.10" max="0.95" step="0.05" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500">
+                                    <p class="text-[9px] text-gray-400 mt-1 leading-tight">Yapay zekanın harften emin olma yüzdesi. Düşük: Hızlı okur, Yüksek: Sadece kesin olanı okur.</p>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <span class="text-xs text-white font-semibold block mb-1">Ardışık Okuma (Buffer)</span>
+                                        <input type="number" v-model="settings.vote_count" @change="saveUltraSettings" min="1" max="10" class="neo-input text-xs py-2 bg-[#151B28]">
+                                        <p class="text-[9px] text-gray-400 mt-1 leading-tight">Sistem doğrulamak için plakayı kaç kez hafızada tutacak?</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-xs text-white font-semibold block mb-1">Doğrulama Eşiği</span>
+                                        <input type="number" v-model="settings.vote_accept" @change="saveUltraSettings" min="1" max="10" class="neo-input text-xs py-2 bg-[#151B28]">
+                                        <p class="text-[9px] text-gray-400 mt-1 leading-tight">Biriken oylardan en az kaçında plaka aynıysa kabul edilecek?</p>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="text-xs text-white font-semibold">Tekrar Okuma Engeli:</span>
+                                        <input type="number" v-model="settings.debounce_time" @change="saveUltraSettings" min="1" max="60" class="neo-input w-20 text-xs py-1.5 bg-[#151B28] text-center">
+                                        <span class="text-xs text-gray-400">Saniye</span>
+                                    </div>
+                                    <p class="text-[9px] text-gray-400 mt-1 leading-tight">Aynı araç kamera karşısında beklerse, sisteme saniyeler içinde tekrar tekrar düşmesini engeller.</p>
+                                </div>
+                                
+                                <div class="pt-3 border-t border-white/10 space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-blue-400 font-bold flex items-center gap-1"><i class="fas fa-eye"></i> Anti-Motion Blur Filtresi</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Hareket halindeki bir aracın plakasını okumadan hemen önce yapay zeka ile keskinleştirir (Sharpening).</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.anti_blur" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-purple-400 font-bold flex items-center gap-1"><i class="fas fa-tachometer-fast"></i> High-Speed Tracker</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Çok hızlı geçen araçları kaçırmamak için kameradaki takipçinin alan çapını %100 büyütür.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.high_speed_tracker" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-purple-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <span class="text-xs text-emerald-500 font-bold flex items-center gap-1"><i class="fas fa-crosshairs"></i> Optik Kutu Takibi</span>
+                                            <p class="text-[9px] text-gray-400 mt-1 w-48 leading-tight">Yapay zekanın hızını beklemeden, plaka hareket ettikçe çerçeveyi aracın üstüne zamk gibi yapıştırır.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="settings.tracking_enabled" @change="saveUltraSettings" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-emerald-500 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="glass p-5 rounded-2xl border border-sky-500/30">
+                            <h4 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="fab fa-telegram text-sky-400"></i> Telegram Mobil Bildirim</h4>
+                            <div class="space-y-3">
+                                <div>
+                                    <input v-model="settings.telegram_token" @change="saveUltraSettings" placeholder="Bot Token (örn: 123456:ABC...)" class="neo-input text-xs py-2 bg-[#151B28]">
+                                    <p class="text-[9px] text-gray-400 mt-1 pl-1">Telegram botunuzun API token bilgisini girin.</p>
+                                </div>
+                                <div>
+                                    <input v-model="settings.telegram_chat_id" @change="saveUltraSettings" placeholder="Chat ID (Kişi veya Grup ID)" class="neo-input text-xs py-2 bg-[#151B28]">
+                                    <p class="text-[9px] text-gray-400 mt-1 pl-1">Sistem "YASAKLI" bir araç tespit ettiği an, girdiğiniz Bot'a aracın fotoğrafını ve bilgilerini anında atar.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        
+                        <div class="glass p-5 rounded-2xl border border-yellow-500/20">
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="text-sm font-bold text-white flex items-center gap-2"><i class="fas fa-parking text-yellow-400"></i> Otopark Kota Kontrolü</h4>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" v-model="settings.quota_enabled" @change="saveQuotaSettings" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-emerald-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                </label>
+                            </div>
+                            <p class="text-[9px] text-gray-400 mb-3">Sitedeki her daire için içeride bulunabilecek maksimum araç sayısını belirler.</p>
+                            <div v-if="settings.quota_enabled" class="flex items-center gap-3">
+                                <span class="text-xs text-white font-semibold">Daire başı limit:</span>
+                                <input type="number" v-model="settings.quota_limit" min="1" max="10" class="neo-input w-20 text-center py-1.5 text-sm bg-[#151B28]" @change="saveQuotaSettings">
+                                <span class="text-xs text-gray-500">araç</span>
+                            </div>
+                        </div>
+                        
+                        <div class="glass p-5 rounded-2xl border border-emerald-500/20">
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="text-sm font-bold text-white flex items-center gap-2"><i class="fas fa-door-open text-emerald-400"></i> Kapı Tetikleme</h4>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" v-model="settings.gate_trigger_enabled" @change="saveQuotaSettings" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:bg-emerald-600 peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                </label>
+                            </div>
+                            <p class="text-[9px] text-gray-400 mb-3">İzinli araç okunduğunda seçili kapıya röle (aç) sinyali gönderir.</p>
+                            <div v-if="gates.length > 0" class="flex gap-2">
+                                <select v-model="selectedTestGate" class="neo-input flex-1 py-2 text-xs bg-[#151B28]">
+                                    <option v-for="g in gates" :value="g.id">{{ g.name }}</option>
+                                </select>
+                                <button @click="testSingleGate(selectedTestGate, $event)" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs text-white font-bold transition">
+                                    <i class="fas fa-bolt"></i> Test
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="glass p-5 rounded-2xl border border-purple-500/20">
+                            <h4 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="fas fa-tv text-purple-400"></i> Tabela / LED Panel</h4>
+                            <div class="space-y-3">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs text-gray-400 w-24 font-medium">Ekranda kalma:</span>
+                                    <input type="number" v-model="settings.tabela_display_time" min="3" max="30" class="neo-input w-20 text-center py-1.5 text-sm bg-[#151B28]" @change="saveQuotaSettings">
+                                    <span class="text-xs text-gray-500">saniye</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs text-gray-400 w-24 font-medium">Yenileme hızı:</span>
+                                    <input type="number" v-model="settings.tabela_refresh_rate" min="200" max="2000" step="100" class="neo-input w-20 text-center py-1.5 text-sm bg-[#151B28]" @change="saveQuotaSettings">
+                                    <span class="text-xs text-gray-500">ms</span>
+                                </div>
+                                <a href="/tabela" target="_blank" class="block w-full bg-purple-600 hover:bg-purple-500 text-white text-xs py-2.5 text-center rounded-lg font-bold mt-2 transition">
+                                    <i class="fas fa-external-link-alt mr-2"></i> Tabela Ekranını Tarayıcıda Aç
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="glass p-5 rounded-2xl border border-white/10">
+                            <h4 class="text-sm font-bold text-white mb-3 flex items-center gap-2"><i class="fas fa-hdd text-blue-400"></i> Veri ve Depolama Yönetimi</h4>
+                            
+                            <div class="bg-black/20 p-3 rounded-xl border border-white/5 mb-4">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs text-white font-bold">Oto Resim Temizliği</span>
+                                </div>
+                                <p class="text-[9px] text-gray-400 mb-2 leading-tight">Sistem diskinin dolmaması için eski araç geçiş fotoğraflarını otomatik siler.</p>
+                                <select v-model.number="settings.auto_delete_days" @change="saveUltraSettings" class="neo-input text-xs py-2 bg-[#151B28]">
+                                    <option :value="0">Asla Silme (Tavsiye Edilmez)</option>
+                                    <option :value="3">3 Günden Eskileri Sil</option>
+                                    <option :value="7">7 Günden Eskileri Sil</option>
+                                    <option :value="15">15 Günden Eskileri Sil</option>
+                                    <option :value="30">30 Günden Eskileri Sil</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-3">
+                                <button @click="downloadBackup" class="p-3 bg-white/5 rounded-xl text-center hover:bg-white/10 transition border border-white/5">
+                                    <i class="fas fa-download text-indigo-400 text-lg mb-1"></i>
+                                    <p class="text-[9px] text-gray-300 font-bold uppercase tracking-wider">Yedekle</p>
+                                </button>
+                                <button @click="exportResidentsCSV" class="p-3 bg-white/5 rounded-xl text-center hover:bg-white/10 transition border border-white/5">
+                                    <i class="fas fa-file-excel text-green-400 text-lg mb-1"></i>
+                                    <p class="text-[9px] text-gray-300 font-bold uppercase tracking-wider">Excel Al</p>
+                                </button>
+                                <label class="p-3 bg-white/5 rounded-xl text-center hover:bg-white/10 transition cursor-pointer border border-white/5">
+                                    <i class="fas fa-file-import text-emerald-400 text-lg mb-1"></i>
+                                    <p class="text-[9px] text-gray-300 font-bold uppercase tracking-wider">İçe Aktar</p>
+                                    <input type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="uploadResidents">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="glass p-5 rounded-2xl border border-green-500/20">
+                            <div class="flex justify-between items-center mb-2">
+                                <h4 class="text-sm font-bold text-white flex items-center gap-2"><i class="fas fa-crop-alt text-green-400"></i> Plaka Okuma Alanı (ROI)</h4>
+                                <label class="flex items-center gap-2 text-[10px] text-white bg-black/30 px-3 py-1 rounded-lg cursor-pointer border border-white/5">
+                                    <input type="checkbox" v-model="roiEnabled" class="accent-green-500 w-4 h-4">
+                                    <span class="font-bold">AKTİF</span>
+                                </label>
+                            </div>
+                            <p class="text-[9px] text-gray-400 mb-3 leading-tight">Sadece belirlediğiniz alan içerisindeki araçları işleyerek performansı %200 artırır.</p>
+                            
+                            <select v-model="roiCameraSlot" @change="loadCameraForROI" class="neo-input w-full py-2 text-xs bg-[#151B28] mb-3">
+                                <option :value="null">-- Ayar Yapılacak Kamerayı Seçin --</option>
+                                <option v-for="c in cameras" :value="c.slot">{{ c.name }} (Slot {{ c.slot }})</option>
+                            </select>
+                            
+                            <div class="relative bg-black rounded-xl overflow-hidden border-2 shadow-inner" :class="roiEnabled ? 'border-green-500/50' : 'border-gray-800'" style="aspect-ratio: 4/3; min-height: 180px;">
+                                <img v-if="roiCameraSlot" :src="'http://localhost:5001/video_feed/CAM-0' + roiCameraSlot + '?t=' + roiRefreshKey" class="w-full h-full object-contain" @error="handleRoiCamError">
+                                <div v-else class="w-full h-full flex flex-col items-center justify-center text-gray-600 gap-3">
+                                    <i class="fas fa-video text-4xl"></i>
+                                    <span class="text-xs font-medium">Kamera Görüntüsü Bekleniyor...</span>
+                                </div>
+                                
+                                <div v-if="roiCameraSlot && roiEnabled" class="absolute inset-0 cursor-crosshair" @mousedown.prevent="startROIDraw" @mousemove.prevent="updateROIDraw" @mouseup.prevent="endROIDraw">
+                                    <div v-if="hasValidROI" class="absolute border-2 border-green-500 border-dashed bg-green-500/10" :style="roiBoxStyle"></div>
+                                    <div v-if="isDrawingROI" class="absolute border-2 border-blue-500 border-dashed bg-blue-500/20" :style="drawingBoxStyle"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex justify-end mt-3 gap-3">
+                                <button @click="clearROI" class="px-5 py-2 bg-red-600/20 text-red-500 hover:bg-red-600 hover:text-white border border-red-500/30 transition rounded-lg text-xs font-bold"><i class="fas fa-eraser mr-1"></i>Çizimi Sil</button>
+                                <button @click="saveROI" :disabled="!hasValidROI" class="px-5 py-2 bg-green-600 text-white hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition rounded-lg text-xs font-bold shadow-lg"><i class="fas fa-save mr-1"></i>Alanı Kaydet</button>
+                            </div>
+                        </div>
+
+                        <div class="glass p-5 rounded-2xl border border-white/5" v-if="roiCameraSlot">
+                            <h4 class="text-sm font-bold text-white mb-4 flex items-center gap-2"><i class="fas fa-sliders-h text-blue-400"></i> Kamera Görüntü Ayarları</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-gray-300 font-medium"><i class="fas fa-sun mr-1 text-gray-500"></i> Parlaklık</span>
+                                        <span class="text-xs text-white font-mono bg-black/30 px-2 py-0.5 rounded">{{ camSettings.brightness }}</span>
+                                    </div>
+                                    <input type="range" v-model.number="camSettings.brightness" min="-50" max="50" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-gray-300 font-medium"><i class="fas fa-adjust mr-1 text-gray-500"></i> Kontrast</span>
+                                        <span class="text-xs text-white font-mono bg-black/30 px-2 py-0.5 rounded">{{ Number(camSettings.contrast).toFixed(1) }}</span>
+                                    </div>
+                                    <input type="range" v-model.number="camSettings.contrast" min="0.5" max="2.0" step="0.1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500">
+                                </div>
+                                <button @click="saveCamSettings" class="w-full py-2.5 mt-2 bg-blue-600 hover:bg-blue-500 transition rounded-lg text-xs text-white font-bold shadow-lg">
+                                    <i class="fas fa-save mr-2"></i> Renk Ayarlarını Kaydet
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div v-if="currentTab === 'dashboard'" class="absolute bottom-0 left-0 right-0 h-12 bg-[#0F172A] border-t border-white/10 flex items-center px-4 z-30 backdrop-blur-md shadow-lg">
+            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mr-8 flex items-center gap-2 shrink-0">
+                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span></span>
+                SON HAREKETLER
+            </div>
+            <div class="flex-1 h-full relative overflow-hidden">
+                <transition name="slide-up" mode="out-in">
+                    <div v-if="lastLog" :key="lastLog.time + lastLog.plate" class="absolute inset-0 flex items-center justify-between px-2">
+                         <div class="flex items-center gap-4">
+                             <span class="text-white font-bold text-xl plate-font tracking-wider drop-shadow-md">{{ lastLog.plate }}</span>
+                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase border" :class="getGateBadgeClass(lastLog)">{{ getGateStatusText(lastLog) }}</span>
+                             <span v-if="lastLog.quota_message" class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">⚠️ {{ lastLog.quota_message }}</span>
+                         </div>
+                         <div class="flex items-center gap-4 text-xs text-gray-400">
+                             <div class="flex items-center gap-2"><i class="fas fa-user text-indigo-400"></i> <span class="text-white font-medium">{{ lastLog.owner || 'Tanımsız' }}</span></div>
+                             <div class="flex items-center gap-1" v-if="lastLog.direction"><i :class="lastLog.direction === 'CIKIS' ? 'fas fa-arrow-up text-orange-400' : 'fas fa-arrow-down text-emerald-400'"></i><span class="text-[10px]">{{ lastLog.direction }}</span></div>
+                             <div class="flex items-center gap-2"><i class="fas fa-clock text-indigo-400"></i> <span class="font-mono">{{ lastLog.timestamp || lastLog.time }}</span></div>
+                         </div>
+                    </div>
+                    <div v-else class="absolute inset-0 flex items-center text-gray-500 text-xs italic">Sistem İzleniyor...</div>
+                </transition>
+            </div>
+        </div>
+
+    </main>
+
+    <transition name="modal">
+        <div v-if="showDetailModal" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md" @click.self="showDetailModal = false">
+            <div class="glass p-8 rounded-2xl max-w-md w-full relative border border-white/10 shadow-2xl transform transition-all scale-100 bg-[#0F172A]">
+                <button @click="showDetailModal = false" class="absolute top-4 right-4 text-gray-500 hover:text-white transition"><i class="fas fa-times text-xl"></i></button>
+                <div class="flex flex-col items-center text-center">
+                    <div class="w-full h-48 mb-6 overflow-hidden rounded-xl border border-white/10 bg-black relative group">
+                        <img v-if="selectedLog.image_path" :src="selectedLog.image_path" class="w-full h-full object-contain">
+                        <div v-else class="w-full h-full flex items-center justify-center text-gray-700"><i class="fas fa-video-slash text-4xl"></i></div>
+                    </div>
+                    <h2 class="text-5xl font-black text-white plate-font tracking-widest mb-3 drop-shadow-lg">{{ selectedLog.plate }}</h2>
+                    <div class="flex gap-2 mb-8">
+                        <span class="px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest border" :class="getBadgeClass(selectedLog.status)">{{ selectedLog.status }}</span>
+                        <span v-if="selectedLog.gate_opened" class="px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest bg-emerald-50 text-black border border-emerald-400">KAPI AÇILDI</span>
+                    </div>
+                    <div class="w-full bg-white/5 p-5 rounded-xl border border-white/5 text-left space-y-3">
+                        <div class="flex justify-between items-center border-b border-white/5 pb-2"><span class="text-xs text-gray-500 font-bold uppercase">Araç Sahibi</span><span class="text-sm text-white font-medium">{{ selectedLog.owner }}</span></div>
+                        <div class="flex justify-between items-center border-b border-white/5 pb-2"><span class="text-xs text-gray-500 font-bold uppercase">Zaman</span><span class="text-sm text-blue-400 font-mono">{{ selectedLog.timestamp || selectedLog.time }}</span></div>
+                        <div class="flex justify-between items-center"><span class="text-xs text-gray-500 font-bold uppercase">Kamera</span><span class="text-sm text-white">{{ selectedLog.camera }}</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </transition>
+
+</div>
+
+<script>
+    const { createApp } = Vue;
+    let reportChartInstance = null;
+    let heatmapChartInstance = null;
+
+    createApp({
+        data() {
+            return {
+                isFullscreen: false, isLightTheme: false, toasts: [], toastCounter: 0,
+                currentTab: 'dashboard', connected: false, logs: [], sysStats: {cpu:0, ram:0},
+                dailyStats: { total: 0, allowed: 0, guest: 0, banned: 0 },
+                tabs: [
+                    {id:'dashboard',name:'Panel',icon:'fas fa-home'},
+                    {id:'reports',name:'Raporlar',icon:'fas fa-chart-bar'},
+                    {id:'sites',name:'Siteler',icon:'fas fa-city'},
+                    {id:'plates',name:'Sakin & Plaka',icon:'fas fa-users'},
+                    {id:'devices',name:'Cihazlar',icon:'fas fa-server'},
+                    {id:'settings',name:'Ayarlar',icon:'fas fa-cog'}
+                ],
+                sites: [], residents: [], gates: [], cameras: [], 
+                settings: {mode:'low', quota_enabled: false, quota_limit: 2, gate_trigger_enabled: true, tabela_display_time: 10, tabela_refresh_rate: 500, rtsp_transport: 'tcp', frame_skip: 4, ai_interval: 0.10, auto_delete_days: 7, ocr_conf_threshold: 0.40, vote_count: 3, vote_accept: 2, debounce_time: 15, api_worker_count: 3, tracking_enabled: false, gpu_acceleration: false, motion_sleep: false, telegram_token: '', telegram_chat_id: '', dynamic_turbo: false, anti_blur: false, high_speed_tracker: false},
+                cameraSources: { 1: '', 2: '', 3: '', 4: '' }, ocrStatus: {paddle_status: 'loading', total_reads: 0},
+                roiCameraSlot: null, roiEnabled: false, roiRefreshKey: Date.now(), isDrawingROI: false, roiStartPos: {x:0, y:0}, roiEndPos: {x:0, y:0}, currentROI: {x1: null, y1: null, x2: null, y2: null},
+                camSettings: {brightness: 0, contrast: 1.0}, newSiteName:'', newBlockName:{}, newBlockCount:{}, editingSiteId: null, editingBlockIds: {},
+                gateName:'', gateIp:'', gateEndpoint:'/open', editingGateId:null, selectedTestGate: null,
+                camName:'', camType:'WEBCAM', camSource:'', camUser:'', camPass:'', camSlot:null, camGateId:null, camDirection:'GIRIS', editingCamId:null,
+                selectedSite:null, selectedBlock:null, resFlat:null, resName:'', resPhone:'', resPlates:[{plate:'', status:'IZINLI'}], editingId:null, 
+                searchQuery:'', filterSite:'', filterBlock:'', filterFlat:'', filterStatus:'',
+                showDetailModal: false, selectedLog: {}, currentTime: '',
+                reportFilter: { start: '', end: '', plate: '', status: '' }, reportData: []
+            }
+        },
+        computed: {
+            pageTitle() { return this.tabs.find(t => t.id === this.currentTab)?.name || 'Panel'; },
+            lastLog() { return this.logs.length > 0 ? this.logs[0] : null; },
+            filteredResidents() { 
+                return this.residents.filter(r => {
+                    if (this.filterSite && r.site_name !== this.filterSite) return false;
+                    if (this.filterBlock && r.block_name !== this.filterBlock) return false;
+                    if (this.filterFlat && r.flat_number.toString() !== this.filterFlat.toString()) return false;
+                    if (this.filterStatus) { const hasStatus = r.plates.some(p => p.status === this.filterStatus); if (!hasStatus) return false; }
+                    if (this.searchQuery) {
+                        const q = this.searchQuery.toLowerCase();
+                        const matchName = r.name.toLowerCase().includes(q);
+                        const matchPhone = r.phone && r.phone.includes(q);
+                        const matchFlat = r.flat_number.toString().includes(q);
+                        const matchPlate = r.plates.some(p => p.plate.toLowerCase().includes(q));
+                        if (!matchName && !matchPhone && !matchFlat && !matchPlate) return false;
+                    }
+                    return true;
+                }).sort((a, b) => b.id - a.id); 
+            },
+            filterBlockOptions() {
+                if (!this.filterSite) { const blocks = new Set(); this.sites.forEach(s => s.blocks.forEach(b => blocks.add(b.name))); return Array.from(blocks).sort(); }
+                const site = this.sites.find(s => s.name === this.filterSite); return site ? site.blocks.map(b => b.name).sort() : [];
+            },
+            activeCameraCount() { return this.cameras.length; },
+            cameraGridClass() {
+                const count = this.activeCameraCount;
+                if (count <= 1) return 'flex';
+                if (count === 2) return 'grid grid-cols-2 gap-3';
+                return 'grid grid-cols-2 grid-rows-2 gap-3';
+            },
+            hasValidROI() { return this.currentROI && this.currentROI.x1 !== null && this.currentROI.x2 !== null; },
+            roiBoxStyle() {
+                if (!this.hasValidROI) return {};
+                return { left: (this.currentROI.x1 / 640 * 100) + '%', top: (this.currentROI.y1 / 480 * 100) + '%', width: ((this.currentROI.x2 - this.currentROI.x1) / 640 * 100) + '%', height: ((this.currentROI.y2 - this.currentROI.y1) / 480 * 100) + '%' };
+            },
+            drawingBoxStyle() {
+                if (!this.isDrawingROI) return {};
+                const x1 = Math.min(this.roiStartPos.x, this.roiEndPos.x); const y1 = Math.min(this.roiStartPos.y, this.roiEndPos.y);
+                const w = Math.abs(this.roiEndPos.x - this.roiStartPos.x); const h = Math.abs(this.roiEndPos.y - this.roiStartPos.y);
+                return { left: x1 + 'px', top: y1 + 'px', width: w + 'px', height: h + 'px' };
+            }
+        },
+        mounted() { 
+            this.connectWS(); this.fetchData(); this.fetchDailyStats(); this.fetchOcrStatus();
+            setInterval(() => this.currentTime = new Date().toLocaleTimeString('tr-TR'), 1000); 
+            setInterval(() => this.fetchOcrStatus(), 5000);
+            
+            // DÜZELTME: Tarayıcının donmasını engelleyen, sayfa yüklenince kameraları açan gecikmeli yapı.
+            window.addEventListener('load', () => {
+                setTimeout(() => { this.startCameraFeeds(); }, 500);
+            });
+            setTimeout(() => { if (!this.cameraSources[1]) this.startCameraFeeds(); }, 2000); // Fallback
+
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            const localDate = `${yyyy}-${mm}-${dd}`;
+            this.reportFilter.start = localDate; this.reportFilter.end = localDate;
+        },
+        methods: {
+            startCameraFeeds() {
+                for (let i = 1; i <= 4; i++) {
+                    this.cameraSources[i] = 'http://localhost:5001/video_feed/CAM-0' + i + '?t=' + Date.now();
+                }
+            },
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                    this.isFullscreen = true;
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                        this.isFullscreen = false;
+                    }
+                }
+            },
+            toggleTheme() {
+                this.isLightTheme = !this.isLightTheme;
+                if (this.isLightTheme) {
+                    document.documentElement.classList.add('light');
+                    document.documentElement.classList.remove('dark');
+                } else {
+                    document.documentElement.classList.remove('light');
+                    document.documentElement.classList.add('dark');
+                }
+            },
+            addToast(title, message, type) {
+                const id = Date.now() + Math.random();
+                this.toasts.push({ id, title, message, type });
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 5000);
+            },
+            handleCamError(e) { setTimeout(() => { e.target.src = e.target.src.split('?')[0] + "?" + Date.now(); }, 3000); },
+            async fetchDailyStats() { try { const res = await fetch('/api/stats/today'); if (res.ok) this.dailyStats = await res.json(); } catch(e) {} },
+            async fetchOcrStatus() { try { const res = await fetch('http://localhost:5001/ocr-status'); if (res.ok) { this.ocrStatus = await res.json(); } } catch (e) {} },
+            getStatusColor(s) { if(s==='IZINLI') return 'border-l-emerald-500'; if(s==='YASAKLI' || s==='KOTA_DOLU') return 'border-l-red-500'; return 'border-l-yellow-500'; },
+            getBadgeClass(s) { if(s==='IZINLI') return 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'; if(s==='YASAKLI' || s==='KOTA_DOLU') return 'bg-red-500/20 text-red-500 border border-red-500/30'; return 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30'; },
+            getGateBadgeClass(log) { return log.gate_opened ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30' : 'bg-red-500/20 text-red-500 border-red-500/30'; },
+            getGateStatusText(log) { if (log.status === 'KOTA_DOLU') return 'KOTA DOLU'; return log.gate_opened ? 'GİRİŞ ONAYLANDI' : 'GİRİŞ REDDEDİLDİ'; },
+            showDetails(log) { this.selectedLog = log; this.showDetailModal = true; },
+            playAlarm() { 
+                try {
+                    if (!window.audioCtx) { window.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+                    if (window.audioCtx.state === 'suspended') { window.audioCtx.resume(); }
+                    const o = window.audioCtx.createOscillator();
+                    o.type = 'square'; o.frequency.value = 440;
+                    o.connect(window.audioCtx.destination);
+                    o.start(); setTimeout(()=>o.stop(), 500); 
+                } catch(e) { console.log("Ses oynatılamadı. Kullanıcının ekrana tıklaması gerekiyor."); }
+            },
+            clearFilters() { this.searchQuery = ''; this.filterSite = ''; this.filterBlock = ''; this.filterFlat = ''; this.filterStatus = ''; },
+            shouldShowCamera(slot) { const count = this.activeCameraCount; if (count === 0) return slot === 1; const cam = this.cameras.find(c => c.slot === slot); return !!cam || (count < 4 && slot <= Math.max(count, 1)); },
+            getCameraItemClass(slot) { const count = this.activeCameraCount; if (count <= 1) return 'w-full h-full'; return 'h-full w-full'; },
+            isCameraActive(slot) { return this.cameras.some(c => c.slot === slot); },
+            getCameraName(slot) { const cam = this.cameras.find(c => c.slot === slot); return cam ? cam.name : `CAM-0${slot}`; },
+            startROIDraw(e) { if (!this.roiEnabled) return; const rect = e.currentTarget.getBoundingClientRect(); this.roiStartPos = { x: e.clientX - rect.left, y: e.clientY - rect.top }; this.roiEndPos = { ...this.roiStartPos }; this.isDrawingROI = true; },
+            updateROIDraw(e) { if (!this.isDrawingROI) return; const rect = e.currentTarget.getBoundingClientRect(); this.roiEndPos = { x: e.clientX - rect.left, y: e.clientY - rect.top }; },
+            endROIDraw(e) { if (!this.isDrawingROI) return; this.isDrawingROI = false; const rect = e.currentTarget.getBoundingClientRect(); const scaleX = 640 / rect.width; const scaleY = 480 / rect.height; const x1 = Math.round(Math.min(this.roiStartPos.x, this.roiEndPos.x) * scaleX); const y1 = Math.round(Math.min(this.roiStartPos.y, this.roiEndPos.y) * scaleY); const x2 = Math.round(Math.max(this.roiStartPos.x, this.roiEndPos.x) * scaleX); const y2 = Math.round(Math.max(this.roiStartPos.y, this.roiEndPos.y) * scaleY); if (x2 - x1 > 50 && y2 - y1 > 30) { this.currentROI = { x1, y1, x2, y2 }; } },
+            downloadBackup() { window.location.href = '/api/backup/download'; },
+            exportResidentsCSV() { window.location.href = '/api/export/residents'; },
+            async uploadResidents(event) { const file = event.target.files[0]; if (!file) return; const formData = new FormData(); formData.append('file', file); const res = await fetch('/api/import/residents', {method: 'POST', body: formData}); const data = await res.json(); alert(data.message); this.fetchData(); },
+            switchTab(tabId) { 
+                this.currentTab = tabId; 
+                if (tabId === 'reports') { setTimeout(() => { this.loadReports(); this.loadHeatmap(); }, 100); }
+            },
+            
+            setPerformanceMode(mode) {
+                this.settings.mode = mode;
+                if(mode === 'low') { this.settings.frame_skip = 4; this.settings.ai_interval = 0.10; }
+                else if(mode === 'medium') { this.settings.frame_skip = 2; this.settings.ai_interval = 0.06; }
+                else if(mode === 'high') { this.settings.frame_skip = 0; this.settings.ai_interval = 0.02; }
+                this.saveUltraSettings();
+            },
+            
+            async saveUltraSettings() {
+                const payload = {
+                    mode: this.settings.mode, rtsp_transport: this.settings.rtsp_transport, frame_skip: parseInt(this.settings.frame_skip),
+                    ai_interval: parseFloat(this.settings.ai_interval), auto_delete_days: parseInt(this.settings.auto_delete_days),
+                    ocr_conf_threshold: parseFloat(this.settings.ocr_conf_threshold), vote_count: parseInt(this.settings.vote_count),
+                    vote_accept: parseInt(this.settings.vote_accept), debounce_time: parseInt(this.settings.debounce_time),
+                    api_worker_count: parseInt(this.settings.api_worker_count), tracking_enabled: Boolean(this.settings.tracking_enabled),
+                    gpu_acceleration: Boolean(this.settings.gpu_acceleration), motion_sleep: Boolean(this.settings.motion_sleep),
+                    telegram_token: this.settings.telegram_token, telegram_chat_id: this.settings.telegram_chat_id,
+                    dynamic_turbo: Boolean(this.settings.dynamic_turbo), anti_blur: Boolean(this.settings.anti_blur), high_speed_tracker: Boolean(this.settings.high_speed_tracker)
+                };
+                await fetch('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+            },
+            
+            async loadHeatmap() {
+                try {
+                    const res = await fetch('/api/stats/hourly');
+                    const hoursData = await res.json();
+                    this.renderHeatmap(hoursData);
+                } catch(e) {}
+            },
+
+            renderHeatmap(data) {
+                if (heatmapChartInstance) { heatmapChartInstance.destroy(); }
+                const ctx = document.getElementById('heatmapChart');
+                if (!ctx) return;
+                const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
+                heatmapChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [{ label: 'Geçiş Sayısı', data: data, backgroundColor: '#3b82f6', borderRadius: 4 }] },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+                });
+            },
+
+            async loadReports() {
+                try {
+                    let query = new URLSearchParams();
+                    if (this.reportFilter.start) query.append('start_date', this.reportFilter.start);
+                    if (this.reportFilter.end) query.append('end_date', this.reportFilter.end);
+                    if (this.reportFilter.plate) query.append('plate', this.reportFilter.plate);
+                    if (this.reportFilter.status) query.append('status', this.reportFilter.status);
+                    const res = await fetch(`/api/reports?${query.toString()}`);
+                    this.reportData = await res.json();
+                    this.renderReportChart();
+                } catch(e) { console.error(e); }
+            },
+
+            renderReportChart() {
+                if (reportChartInstance) { reportChartInstance.destroy(); }
+                const ctx = document.getElementById('reportChart');
+                if (!ctx) return;
+                let allowed = 0, guest = 0, banned = 0;
+                this.reportData.forEach(r => { if(r.status === 'IZINLI') allowed++; else if(r.status === 'MİSAFİR') guest++; else banned++; });
+                reportChartInstance = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: { labels: ['İzinli', 'Misafir', 'Yasaklı'], datasets: [{ data: [allowed, guest, banned], backgroundColor: ['#10b981', '#f59e0b', '#ef4444'], borderWidth: 0, hoverOffset: 4 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: this.isLightTheme ? '#0f172a' : '#cbd5e1', font: {family: 'Inter', size: 11} } } }, cutout: '70%' }
+                });
+            },
+
+            exportToPDF() {
+                const element = document.getElementById('report-content');
+                const opt = { margin: 0.5, filename: 'LPR_Rapor_' + new Date().toISOString().split('T')[0] + '.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: this.isLightTheme ? '#f1f5f9' : '#0f172a' }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' } };
+                html2pdf().set(opt).from(element).save();
+            },
+            
+            async saveQuotaSettings() { await fetch('/api/settings/quota', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(this.settings) }); },
+            async testSingleGate(gateId, event) { try { const res = await fetch(`/api/gate/test/${gateId}`, {method: 'POST'}); const data = await res.json(); if (data.status === 'ok') { const btn = event.currentTarget; const oldHtml = btn.innerHTML; btn.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => btn.innerHTML = oldHtml, 1000); } else { alert(data.message); } } catch(e) { alert("Hata: " + e.message); } },
+            loadCameraForROI() { if (!this.roiCameraSlot) return; this.roiRefreshKey = Date.now(); this.loadROI(); },
+            clearROI() { this.currentROI = {x1: null, y1: null, x2: null, y2: null}; this.roiEnabled = false; if(this.roiCameraSlot) { this.saveROI(); } },
+            async saveROI() { if (!this.roiCameraSlot) return alert("Kamera seçin!"); await fetch('/api/camera/roi', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ slot: this.roiCameraSlot, roi: this.currentROI, enabled: this.roiEnabled && this.hasValidROI }) }); },
+            async loadROI() { try { const res = await fetch(`/api/camera/roi/${this.roiCameraSlot}`); const data = await res.json(); if (data.roi) { this.currentROI = data.roi; this.roiEnabled = data.enabled; } } catch(e) {} },
+            async saveCamSettings() { if (!this.roiCameraSlot) return; await fetch('/api/camera/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ slot: this.roiCameraSlot, brightness: this.camSettings.brightness, contrast: this.camSettings.contrast }) }); alert("Görüntü ayarları kaydedildi!"); },
+            
+            async fetchData() { 
+                try { 
+                    this.sites = await (await fetch('/api/sites')).json(); this.residents = await (await fetch('/api/residents')).json(); this.gates = await (await fetch('/api/gates')).json(); 
+                    if (this.gates.length > 0 && !this.selectedTestGate) this.selectedTestGate = this.gates[0].id; 
+                    this.cameras = await (await fetch('/api/cameras')).json(); const hist = await (await fetch('/api/history')).json(); this.logs = hist.map(l => ({...l, time: l.timestamp || l.time})); 
+                    const set = await (await fetch('/api/settings')).json(); 
+                    
+                    this.settings.mode = set.mode || 'low';
+                    this.settings.quota_enabled = set.quota_enabled === 'true' || set.quota_enabled === true;
+                    this.settings.quota_limit = Number(set.quota_limit || 2);
+                    this.settings.gate_trigger_enabled = set.gate_trigger_enabled === 'true' || set.gate_trigger_enabled === true;
+                    this.settings.tabela_display_time = Number(set.tabela_display_time || 10);
+                    this.settings.tabela_refresh_rate = Number(set.tabela_refresh_rate || 500);
+                    this.settings.rtsp_transport = set.rtsp_transport || 'tcp';
+                    this.settings.frame_skip = Number(set.frame_skip || 4); 
+                    this.settings.ai_interval = Number(set.ai_interval || 0.10); 
+                    this.settings.auto_delete_days = Number(set.auto_delete_days || 7);
+                    this.settings.ocr_conf_threshold = Number(set.ocr_conf_threshold || 0.40); 
+                    this.settings.vote_count = Number(set.vote_count || 3);
+                    this.settings.vote_accept = Number(set.vote_accept || 2); 
+                    this.settings.debounce_time = Number(set.debounce_time || 15);
+                    this.settings.api_worker_count = Number(set.api_worker_count || 3);
+                    
+                    this.settings.dynamic_turbo = set.dynamic_turbo === 'true' || set.dynamic_turbo === true;
+                    this.settings.anti_blur = set.anti_blur === 'true' || set.anti_blur === true;
+                    this.settings.high_speed_tracker = set.high_speed_tracker === 'true' || set.high_speed_tracker === true;
+                    this.settings.tracking_enabled = set.tracking_enabled === 'true' || set.tracking_enabled === true;
+                    this.settings.gpu_acceleration = set.gpu_acceleration === 'true' || set.gpu_acceleration === true;
+                    this.settings.motion_sleep = set.motion_sleep === 'true' || set.motion_sleep === true;
+                    
+                    this.settings.telegram_token = set.telegram_token || '';
+                    this.settings.telegram_chat_id = set.telegram_chat_id || '';
+                } catch(e) { console.error(e); } 
+            },
+            
+            async addSite() { if(this.editingSiteId) { await fetch(`/api/sites/${this.editingSiteId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:this.newSiteName})}); this.editingSiteId=null; } else { if(!this.newSiteName) return; await fetch('/api/sites', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:this.newSiteName})}); } this.newSiteName = ''; this.fetchData(); },
+            startEditSite(site) { this.newSiteName = site.name; this.editingSiteId = site.id; },
+            cancelEditSite() { this.newSiteName = ''; this.editingSiteId = null; },
+            async deleteSite(id) { if(confirm("Siteyi ve tüm blokları silmek istediğinize emin misiniz?")) { await fetch(`/api/sites/${id}`, {method:'DELETE'}); this.fetchData(); } },
+            async saveBlock(siteId) { const name = this.newBlockName[siteId]; const count = this.newBlockCount[siteId]; if(!name) return; if(this.editingBlockIds[siteId]) { await fetch(`/api/blocks/${this.editingBlockIds[siteId]}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({site_id:siteId, name:name, flat_count:count})}); delete this.editingBlockIds[siteId]; } else { await fetch('/api/blocks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({site_id:siteId, name:name, flat_count:count || 10})}); } this.newBlockName[siteId] = ''; this.newBlockCount[siteId] = ''; this.fetchData(); },
+            startEditBlock(block, siteId) { this.newBlockName[siteId] = block.name; this.newBlockCount[siteId] = block.flat_count; this.editingBlockIds[siteId] = block.id; },
+            cancelEditBlock(siteId) { this.newBlockName[siteId] = ''; this.newBlockCount[siteId] = ''; delete this.editingBlockIds[siteId]; },
+            startEdit(res) { this.editingId = res.id; this.resName = res.name; this.resPhone = res.phone; this.resFlat = res.flat_number; const s = this.sites.find(s => s.name === res.site_name); if(s) { this.selectedSite = s; this.selectedBlock = s.blocks.find(b => b.id === res.block_id_real); } this.resPlates = JSON.parse(JSON.stringify(res.plates)); if(this.resPlates.length === 0) this.resPlates.push({plate:'', status:'IZINLI'}); this.currentTab = 'plates'; },
+            cancelEdit() { this.editingId = null; this.resName = ''; this.resPhone=''; this.resPlates = [{plate:'', status:'IZINLI'}]; this.resFlat = null; },
+            addPlateInput() { if(this.resPlates.length < 5) this.resPlates.push({plate:'', status:'IZINLI'}); },
+            async saveResident() { if(!this.selectedBlock || !this.resName) return alert("Eksik Bilgi!"); const payload = { block_id: this.selectedBlock.id, flat_number: this.resFlat, name: this.resName, phone: this.resPhone, plates: this.resPlates }; if (this.editingId) await fetch(`/api/residents/${this.editingId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/residents', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEdit(); this.fetchData(); },
+            async deleteResident(id) { if(confirm("Silinecek mi?")) { await fetch(`/api/residents/${id}`, {method:'DELETE'}); this.fetchData(); } },
+            startEditGate(g) { this.editingGateId = g.id; this.gateName = g.name; this.gateIp = g.ip_address; this.gateEndpoint = g.endpoint; },
+            cancelEditGate() { this.editingGateId = null; this.gateName = ''; this.gateIp = ''; this.gateEndpoint = '/open'; },
+            async saveGate() { const payload = {name:this.gateName, ip_address:this.gateIp, endpoint:this.gateEndpoint}; if(this.editingGateId) await fetch(`/api/gates/${this.editingGateId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/gates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEditGate(); this.fetchData(); },
+            async deleteGate(id) { await fetch(`/api/gates/${id}`, {method:'DELETE'}); this.fetchData(); },
+            startEditCam(c) { this.editingCamId = c.id; this.camName = c.name; this.camType = c.type; this.camSource = c.source; this.camUser = c.rtsp_user; this.camPass = c.rtsp_pass; this.camSlot = c.slot; this.camGateId = c.gate_id; this.camDirection = c.direction || 'GIRIS'; },
+            cancelEditCam() { this.editingCamId = null; this.camName = ''; this.camType = 'WEBCAM'; this.camSource = ''; this.camUser=''; this.camPass=''; this.camSlot=null; this.camGateId=null; this.camDirection='GIRIS'; },
+            async saveCamera() { if (!this.camSlot) return alert("Slot seçmelisiniz!"); const payload = { name: this.camName, type: this.camType, source: this.camSource, rtsp_user: this.camUser, rtsp_pass: this.camPass, slot: this.camSlot, gate_id: this.camGateId, direction: this.camDirection }; if(this.editingCamId) await fetch(`/api/cameras/${this.editingCamId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/cameras', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEditCam(); this.fetchData(); },
+            async deleteCamera(id) { await fetch(`/api/cameras/${id}`, {method:'DELETE'}); this.fetchData(); },
+            isSlotOccupied(slot) { if (this.editingCamId) { return this.cameras.some(c => c.slot === slot && c.id !== this.editingCamId); } return this.cameras.some(c => c.slot === slot); },
+
+            connectWS() {
+                const ws = new WebSocket("ws://localhost:8000/ws");
+                ws.onopen = () => { this.connected = true; };
+                ws.onclose = () => { this.connected = false; setTimeout(this.connectWS, 2000); };
+                ws.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    if(data.type === 'sys_stats') { this.sysStats = data; return; }
+                    if(data.type === 'log') {
+                        const logData = {...data, time: data.time || data.timestamp};
+                        
+                        this.dailyStats.total++;
+                        if (logData.status === 'IZINLI') this.dailyStats.allowed++;
+                        else if (logData.status === 'YASAKLI' || logData.status === 'KOTA_DOLU') this.dailyStats.banned++;
+                        else this.dailyStats.guest++;
+
+                        // GÖRÜNÜR YASAKLI/VIP TOAST BİLDİRİMİ
+                        if (logData.status === 'YASAKLI' || logData.status === 'KOTA_DOLU') {
+                            this.addToast('Giriş Reddedildi', `${logData.plate} (${logData.status})`, logData.status);
+                            this.playAlarm(); 
+                        } else if (logData.owner && logData.owner.toUpperCase().includes('VIP')) {
+                            this.addToast('VIP Girişi', `${logData.plate} (${logData.owner})`, 'IZINLI');
+                        }
+
+                        if (this.logs.length > 0 && this.logs[0].plate === logData.plate && this.logs[0].time === logData.time) return;
+                        this.logs.unshift(logData);
+                        if(this.logs.length > 50) this.logs.pop(); 
+                    }
+                };
+            }
+        }
+    }).mount('#app')
+</script>
+
+<script>
+    let refreshDebounce;
+    function refreshStreams() {
+        clearTimeout(refreshDebounce);
+        refreshDebounce = setTimeout(() => {
+            const images = document.querySelectorAll('img');
+            images.forEach((img) => {
+                if (img.src && img.src.includes('video_feed')) {
+                    let cleanSrc = img.src.split('?')[0];
+                    img.src = cleanSrc + '?t=' + Date.now();
+                }
+            });
+        }, 500);
+    }
+    document.addEventListener("visibilitychange", function() { if (document.visibilityState === 'visible') { refreshStreams(); } });
+    window.addEventListener("focus", refreshStreams);
+    
+    document.addEventListener("fullscreenchange", function() {
+        if (!document.fullscreenElement) {
+            window.dispatchEvent(new CustomEvent('fullscreen-exited'));
+        }
+    });
+</script>
+</body>
+</html>

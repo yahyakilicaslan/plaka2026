@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabela - Hoşgeldiniz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Roboto:wght@400;700&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: 'Roboto', sans-serif;
+        }
+        
+        .plate-font {
+            font-family: 'Oswald', sans-serif;
+            letter-spacing: 0.15em;
+        }
+        
+        .glow-green {
+            text-shadow: 0 0 20px #22c55e, 0 0 40px #22c55e, 0 0 60px #22c55e;
+        }
+        
+        .glow-yellow {
+            text-shadow: 0 0 20px #eab308, 0 0 40px #eab308, 0 0 60px #eab308;
+        }
+        
+        .glow-red {
+            text-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444, 0 0 60px #ef4444;
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .plate-box {
+            background: linear-gradient(180deg, #f8f8f8 0%, #e0e0e0 100%);
+            border: 4px solid #1a1a1a;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.5);
+        }
+        
+        .tr-strip {
+            background: linear-gradient(180deg, #1e40af 0%, #1e3a8a 100%);
+            width: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px 0 0 4px;
+        }
+        
+        .idle-animation {
+            animation: breathe 3s ease-in-out infinite;
+        }
+        
+        @keyframes breathe {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.02); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center">
+    <div id="app" class="w-full h-screen flex flex-col items-center justify-center p-8">
+        
+        <!-- Bekleme Ekranı -->
+        <div v-if="!hasPlate" class="text-center idle-animation">
+            <div class="text-6xl mb-8 text-gray-600">🚗</div>
+            <h1 class="text-4xl font-bold text-gray-500 mb-4">PLAKA OKUMA SİSTEMİ</h1>
+            <p class="text-xl text-gray-600">Araç bekleniyor...</p>
+            <div class="mt-8 text-sm text-gray-700">{{ currentTime }}</div>
+        </div>
+        
+        <!-- Plaka Gösterimi -->
+        <div v-else class="text-center animate-fade-in">
+            
+            <!-- Hoşgeldiniz / Uyarı -->
+            <h1 class="text-5xl md:text-7xl font-bold mb-8 tracking-wider"
+                :class="statusClass">
+                {{ welcomeText }}
+            </h1>
+            
+            <!-- Plaka Kutusu -->
+            <div class="plate-box flex mx-auto mb-8" style="width: 500px; height: 120px;">
+                <div class="tr-strip">
+                    <span class="text-white text-xs font-bold">TR</span>
+                    <div class="w-8 h-8 rounded-full bg-blue-600 border-2 border-yellow-400 flex items-center justify-center mt-1">
+                        <span class="text-yellow-400 text-[10px] font-bold">★</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex items-center justify-center">
+                    <span class="plate-font text-5xl md:text-6xl text-gray-900">{{ plateInfo.plate }}</span>
+                </div>
+            </div>
+            
+            <!-- Sakin Bilgisi -->
+            <div class="text-2xl text-gray-300 mb-4" v-if="plateInfo.owner && plateInfo.owner !== 'Tanımsız Araç'">
+                {{ plateInfo.owner }}
+            </div>
+            
+            <!-- Durum Badge -->
+            <div class="inline-block px-8 py-3 rounded-full text-xl font-bold uppercase tracking-widest"
+                 :class="badgeClass">
+                {{ statusText }}
+            </div>
+            
+            <!-- Kota Uyarısı -->
+            <div v-if="plateInfo.quota_message" class="mt-6 text-xl text-red-400 animate-pulse-slow">
+                ⚠️ {{ plateInfo.quota_message }}
+            </div>
+            
+            <!-- Site Adı -->
+            <div class="mt-8 text-lg text-gray-500" v-if="plateInfo.site">
+                {{ plateInfo.site }}
+            </div>
+        </div>
+        
+        <!-- Alt Bilgi -->
+        <div class="absolute bottom-4 left-0 right-0 text-center text-gray-700 text-sm">
+            EvoSmart Plaka Tanıma Sistemi
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script>
+        const { createApp } = Vue
+        
+        createApp({
+            data() {
+                return {
+                    plateInfo: {
+                        plate: '',
+                        owner: '',
+                        status: '',
+                        site: '',
+                        timestamp: '',
+                        quota_message: ''
+                    },
+                    currentTime: '',
+                    hasPlate: false,
+                    hideTimeout: null,
+                    displayTime: 10,
+                    refreshRate: 500
+                }
+            },
+            computed: {
+                welcomeText() {
+                    if (this.plateInfo.status === 'IZINLI') return 'HOŞGELDİNİZ';
+                    if (this.plateInfo.status === 'MİSAFİR') return 'HOŞGELDİNİZ';
+                    if (this.plateInfo.status === 'YASAKLI') return 'GİRİŞ YASAK';
+                    if (this.plateInfo.status === 'KOTA_DOLU') return 'KOTA DOLU';
+                    return 'HOŞGELDİNİZ';
+                },
+                statusText() {
+                    if (this.plateInfo.status === 'IZINLI') return 'İZİNLİ ARAÇ';
+                    if (this.plateInfo.status === 'MİSAFİR') return 'MİSAFİR';
+                    if (this.plateInfo.status === 'YASAKLI') return 'YASAKLI ARAÇ';
+                    if (this.plateInfo.status === 'KOTA_DOLU') return 'KOTA AŞILDI';
+                    return this.plateInfo.status;
+                },
+                statusClass() {
+                    if (this.plateInfo.status === 'IZINLI') return 'text-green-400 glow-green';
+                    if (this.plateInfo.status === 'MİSAFİR') return 'text-yellow-400 glow-yellow';
+                    if (this.plateInfo.status === 'YASAKLI') return 'text-red-500 glow-red';
+                    if (this.plateInfo.status === 'KOTA_DOLU') return 'text-red-500 glow-red';
+                    return 'text-green-400 glow-green';
+                },
+                badgeClass() {
+                    if (this.plateInfo.status === 'IZINLI') return 'bg-green-500/20 text-green-400 border-2 border-green-500';
+                    if (this.plateInfo.status === 'MİSAFİR') return 'bg-yellow-500/20 text-yellow-400 border-2 border-yellow-500';
+                    if (this.plateInfo.status === 'YASAKLI') return 'bg-red-500/20 text-red-400 border-2 border-red-500';
+                    if (this.plateInfo.status === 'KOTA_DOLU') return 'bg-red-500/20 text-red-400 border-2 border-red-500';
+                    return 'bg-gray-500/20 text-gray-400 border-2 border-gray-500';
+                }
+            },
+            mounted() {
+                this.updateTime();
+                setInterval(() => this.updateTime(), 1000);
+                this.loadSettings();
+            },
+            methods: {
+                updateTime() {
+                    this.currentTime = new Date().toLocaleString('tr-TR');
+                },
+                async loadSettings() {
+                    try {
+                        const res = await fetch('/api/tabela/settings');
+                        const data = await res.json();
+                        this.displayTime = data.display_time || 10;
+                        this.refreshRate = data.refresh_rate || 500;
+                    } catch(e) {
+                        this.displayTime = 10;
+                        this.refreshRate = 500;
+                    }
+                    this.pollStatus();
+                },
+                async pollStatus() {
+                    try {
+                        const res = await fetch('/api/tabela/status');
+                        const data = await res.json();
+                        
+                        if (data.plate && data.plate !== this.plateInfo.plate) {
+                            this.plateInfo = data;
+                            this.hasPlate = true;
+                            
+                            // Ayarlardaki süre kadar göster
+                            if (this.hideTimeout) clearTimeout(this.hideTimeout);
+                            this.hideTimeout = setTimeout(() => {
+                                this.hasPlate = false;
+                            }, this.displayTime * 1000);
+                        }
+                    } catch (e) {
+                        console.error('Poll error:', e);
+                    }
+                    
+                    // Ayarlardaki hızda kontrol et
+                    setTimeout(() => this.pollStatus(), this.refreshRate);
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVO SECURITY | AI MONITOR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] }, colors: { dark: { 900: '#0f172a', 800: '#1e293b', 700: '#334155' }, brand: { primary: '#6366f1', accent: '#10b981', danger: '#ef4444', warning: '#f59e0b' } }, boxShadow: { 'neon': '0 0 15px rgba(99, 102, 241, 0.2)', 'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)' } } } }
+    </script>
+    <style>
+        body { background-color: #0B0E14; background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #0B0E14 80%); color: #E2E8F0; overflow: hidden; }
+        [v-cloak] { display: none !important; }
+        ::-webkit-scrollbar { width: 6px; background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .neo-input { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); color: white; padding: 10px 14px; border-radius: 8px; width: 100%; transition: all 0.3s; font-size: 0.9rem; }
+        .neo-input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); outline: none; background: rgba(15, 23, 42, 1); }
+        .neo-btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; text-align: center; transition: all 0.2s; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.75rem; }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.3); color: white; }
+        .btn-icon { padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; transition: all 0.2s; }
+        .btn-icon-edit { background: rgba(59, 130, 246, 0.1); color: #60a5fa; }
+        .btn-icon-edit:hover { background: rgba(59, 130, 246, 0.2); color: white; }
+        .plate-font { font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 1.5px; }
+        .camera-feed { width: 100%; height: 100%; object-fit: fill; transform: translateZ(0); }
+        .list-enter-active, .list-leave-active { transition: all 0.4s ease; }
+        .list-enter-from, .list-leave-to { opacity: 0; transform: translateX(-20px); }
+        .slide-up-enter-active { transition: all 0.4s ease-out; }
+        .slide-up-leave-active { transition: all 0.4s ease-in; position: absolute; width: 100%; }
+        .slide-up-enter-from { opacity: 0; transform: translateY(100%); }
+        .slide-up-leave-to { opacity: 0; transform: translateY(-100%); }
+        @keyframes flash-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } 50% { box-shadow: 0 0 50px 15px rgba(239, 68, 68, 0.4); } }
+        .alarm-active { animation: flash-red 1.5s infinite; border: 1px solid #ef4444; }
+        .fixed-h-panel { height: calc(100vh - 280px); }
+    </style>
+</head>
+<body class="h-screen flex text-sm font-sans">
+
+<div id="app" class="w-full h-full flex overflow-hidden relative" v-cloak>
+
+    <aside class="w-64 glass-panel flex flex-col z-20 border-r border-white/5">
+        <div class="h-20 flex items-center px-6 border-b border-white/5">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white mr-3 shadow-neon">E</div>
+            <div><h1 class="font-bold text-white text-lg tracking-wide">EVO SMART</h1><p class="text-[10px] text-indigo-400 tracking-widest font-mono uppercase">Security v65</p></div>
+        </div>
+        <nav class="flex-1 p-4 space-y-2 mt-2 overflow-y-auto">
+            <button v-for="tab in tabs" :key="tab.id" @click="currentTab = tab.id" :class="currentTab === tab.id ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/50 shadow-neon' : 'text-gray-400 hover:bg-white/5 border-transparent'" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200 group"><i :class="tab.icon + ' w-5 group-hover:scale-110 transition-transform'"></i><span class="font-medium">{{ tab.name }}</span></button>
+        </nav>
+        <div class="p-4 border-t border-white/5">
+            <div class="bg-black/30 rounded-lg p-3 flex items-center justify-between border border-white/5">
+                <div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full" :class="connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'"></div><span class="text-xs font-mono text-gray-300">{{ connected ? 'ONLINE' : 'OFFLINE' }}</span></div><i class="fas fa-server text-gray-600 text-xs"></i>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 bg-black/20 relative">
+        <header class="h-20 flex items-center px-8 justify-between flex-shrink-0 border-b border-white/5 bg-dark-900/50 backdrop-blur-sm">
+            <div><h2 class="text-xl font-bold text-white tracking-tight">{{ pageTitle }}</h2><p class="text-xs text-gray-500 mt-0.5">{{ currentTime }}</p></div>
+            <div class="flex items-center gap-4">
+                <div class="flex gap-2 bg-black/30 p-1.5 rounded-lg border border-white/5">
+                    <div class="px-3 py-1.5 rounded bg-white/5 text-[10px] text-gray-300 flex items-center gap-2"><i class="fas fa-microchip text-blue-400"></i> <span class="font-mono">{{ sysStats.cpu }}%</span></div>
+                    <div class="px-3 py-1.5 rounded bg-white/5 text-[10px] text-gray-300 flex items-center gap-2"><i class="fas fa-memory text-purple-400"></i> <span class="font-mono">{{ sysStats.ram }}%</span></div>
+                </div>
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-gray-800 to-gray-700 border border-white/10 flex items-center justify-center shadow-lg cursor-pointer hover:border-white/30 transition"><i class="fas fa-user text-xs text-gray-300"></i></div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 pb-0 flex flex-col min-h-0 relative">
+            <div v-if="currentTab === 'dashboard'" class="flex flex-col h-full gap-6 pb-20">
+                <div class="grid grid-cols-4 gap-6 shrink-0">
+                    <div class="glass-panel p-5 rounded-2xl flex items-center justify-between border-b-2 border-blue-500 hover:bg-white/5 transition"><div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Toplam</p><h3 class="text-3xl font-black text-white">{{ logs.length }}</h3></div><div class="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400"><i class="fas fa-car text-xl"></i></div></div>
+                    <div class="glass-panel p-5 rounded-2xl flex items-center justify-between border-b-2 border-emerald-500 hover:bg-white/5 transition"><div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">İzinli</p><h3 class="text-3xl font-black text-emerald-400">{{ allowedCount }}</h3></div><div class="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400"><i class="fas fa-check-circle text-xl"></i></div></div>
+                    <div class="glass-panel p-5 rounded-2xl flex items-center justify-between border-b-2 border-yellow-500 hover:bg-white/5 transition"><div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Misafir</p><h3 class="text-3xl font-black text-yellow-400">{{ guestCount }}</h3></div><div class="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center text-yellow-400"><i class="fas fa-user-clock text-xl"></i></div></div>
+                    <div class="glass-panel p-5 rounded-2xl flex items-center justify-between border-b-2 border-red-500 hover:bg-white/5 transition"><div><p class="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">Yasaklı</p><h3 class="text-3xl font-black text-red-500">{{ bannedCount }}</h3></div><div class="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-400"><i class="fas fa-ban text-xl"></i></div></div>
+                </div>
+                <div class="flex-1 flex gap-6 min-h-0">
+                    <div class="flex-[3] grid grid-cols-2 grid-rows-2 gap-4 h-full">
+                        <div v-for="i in 4" :key="i" class="bg-black rounded-xl border border-white/10 relative overflow-hidden group shadow-lg h-full">
+                            <div class="absolute top-3 left-3 z-10 px-2 py-1 bg-black/60 backdrop-blur rounded border border-white/10 flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div><span class="text-[10px] font-bold text-white tracking-wider">CAM-0{{i}}</span></div>
+                            <img :id="'cam'+i" :src="'http://localhost:5001/video_feed/CAM-0'+i" class="camera-feed opacity-90 group-hover:opacity-100 transition duration-500" @error="handleCamError">
+                        </div>
+                    </div>
+                    <div class="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden">
+                        <div class="p-4 border-b border-white/5 bg-black/20 flex justify-between items-center shrink-0"><span class="text-xs font-bold text-gray-300 uppercase tracking-wider">CANLI AKIŞ</span><button @click="logs=[]" class="text-gray-500 hover:text-white transition"><i class="fas fa-trash-alt text-xs"></i></button></div>
+                        <div class="flex-1 overflow-y-auto p-3 space-y-3 custom-scroll relative">
+                            <transition-group name="list">
+                                <div v-for="log in logs" :key="log.id || (log.plate + log.time)" @click="showDetails(log)" class="p-3 rounded-xl border border-white/5 bg-[#151B28] hover:bg-[#1e293b] cursor-pointer transition-all group relative overflow-hidden">
+                                    <div class="absolute left-0 top-0 bottom-0 w-1" :class="getStatusColor(log.status)"></div>
+                                    <div class="flex justify-between items-center mb-1 pl-3"><span class="text-sm font-bold text-white plate-font">{{ log.plate }}</span><span class="text-[10px] text-gray-500 font-mono">{{ (log.timestamp || log.time).split(' ')[1] }}</span></div>
+                                    <div class="pl-3 flex items-center justify-between"><span class="text-[11px] text-gray-400 truncate w-24">{{ log.owner || 'Tanımsız' }}</span><i v-if="log.gate_opened" class="fas fa-lock-open text-emerald-500 text-xs animate-bounce"></i></div>
+                                </div>
+                            </transition-group>
+                            <div v-if="logs.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 opacity-50"><i class="fas fa-radar text-3xl mb-2"></i><span class="text-xs">Veri bekleniyor...</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'sites'" class="flex-1 flex flex-col gap-6 pb-20">
+                <div class="glass-panel p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">Site & Blok Ekle</h3><div class="flex gap-4 max-w-md"><input v-model="newSiteName" class="neo-input" placeholder="Site Adı Giriniz"><div class="flex gap-2"><button @click="addSite" class="neo-btn btn-primary whitespace-nowrap">{{ editingSiteId ? 'GÜNCELLE' : 'EKLE' }}</button><button v-if="editingSiteId" @click="cancelEditSite" class="neo-btn bg-gray-700">İPTAL</button></div></div></div>
+                <div class="grid grid-cols-2 gap-6">
+                    <div v-for="site in sites" :key="site.id" class="glass-panel p-5 rounded-xl">
+                        <div class="flex justify-between items-center mb-4"><div class="flex items-center gap-3"><h4 class="text-white font-bold text-lg">{{ site.name }}</h4><button @click="startEditSite(site)" class="text-blue-400 hover:text-white text-xs"><i class="fas fa-pen"></i></button></div><button @click="deleteSite(site.id)" class="btn-danger px-2 py-1 rounded text-xs"><i class="fas fa-trash"></i></button></div>
+                        <div class="flex gap-2 mb-4 p-3 bg-black/20 rounded-lg"><input v-model="newBlockName[site.id]" class="neo-input text-xs py-1" placeholder="Blok Adı"><input v-model="newBlockCount[site.id]" type="number" class="neo-input text-xs py-1 w-24" placeholder="Daire"><button @click="saveBlock(site.id)" class="btn-primary px-3 py-1 rounded text-xs">{{ editingBlockIds[site.id] ? 'GÜNCELLE' : 'EKLE' }}</button><button v-if="editingBlockIds[site.id]" @click="cancelEditBlock(site.id)" class="text-gray-500 hover:text-white"><i class="fas fa-times"></i></button></div>
+                        <div class="flex flex-wrap gap-2"><div v-for="block in site.blocks" :key="block.id" class="bg-[#1e293b] px-3 py-2 rounded-lg text-center border border-white/5 group relative"><div class="text-white font-bold text-sm">{{ block.name }}</div><div class="text-[10px] text-gray-500">{{ block.flat_count }} Daire</div><button @click="startEditBlock(block, site.id)" class="absolute top-1 right-1 text-blue-400 opacity-0 group-hover:opacity-100 text-[10px]"><i class="fas fa-pen"></i></button></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'plates'" class="flex-1 grid grid-cols-12 gap-8 pb-20">
+                <div class="col-span-4 glass-panel p-6 rounded-xl h-fit">
+                    <h3 class="text-lg font-bold text-white mb-4 border-b border-white/10 pb-2">{{ editingId ? 'Düzenle' : 'Yeni Kayıt' }}</h3>
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-3"><select v-model="selectedSite" class="neo-input bg-[#151B28] text-xs"><option :value="null">Site Seçin</option><option v-for="s in sites" :value="s">{{ s.name }}</option></select><select v-if="selectedSite" v-model="selectedBlock" class="neo-input bg-[#151B28] text-xs"><option :value="null">Blok Seçin</option><option v-for="b in selectedSite.blocks" :value="b">{{ b.name }}</option></select></div><select v-if="selectedBlock" v-model="resFlat" class="neo-input bg-[#151B28]"><option :value="null">Daire Seçin</option><option v-for="n in selectedBlock.flat_count" :value="n">{{ n }}</option></select><input v-model="resName" class="neo-input" placeholder="Ad Soyad"><input v-model="resPhone" class="neo-input" placeholder="Telefon">
+                        <div class="bg-black/20 p-3 rounded-lg border border-white/5"><label class="text-xs text-gray-400 block mb-2 uppercase font-bold">Plakalar</label><div v-for="(p, idx) in resPlates" :key="idx" class="flex gap-2 mb-2"><input v-model="p.plate" class="neo-input uppercase plate-font py-1" placeholder="34ABC123"><select v-model="p.status" class="neo-input w-28 bg-[#151B28] text-xs py-1"><option value="IZINLI">İzinli</option><option value="YASAKLI">Yasaklı</option></select></div><button @click="addPlateInput" v-if="resPlates.length < 5" class="text-xs text-indigo-400 hover:text-indigo-300">+ Plaka Ekle</button></div>
+                        <div class="flex gap-2 mt-4"><button @click="saveResident" class="neo-btn btn-primary flex-1">KAYDET</button><button v-if="editingId" @click="cancelEdit" class="neo-btn bg-gray-700 text-white flex-1">İPTAL</button></div>
+                    </div>
+                </div>
+                <div class="col-span-8 glass-panel p-6 rounded-xl flex flex-col h-[80vh]">
+                    <div class="flex justify-between mb-4"><h3 class="text-lg font-bold text-white">Sakin Listesi</h3><input v-model="searchQuery" class="neo-input w-64 text-xs" placeholder="Ara (İsim, Plaka...)"></div>
+                    <div class="flex-1 overflow-y-auto space-y-3 custom-scroll pr-2"><div v-for="res in filteredResidents" :key="res.id" class="bg-white/5 p-4 rounded-xl flex justify-between items-center border border-white/5 hover:border-indigo-500/30 transition"><div><div class="font-bold text-white text-sm mb-1">{{ res.site_name }} {{ res.block_name }} <span class="text-gray-500 mx-1">|</span> Daire {{ res.flat_number }}</div><div class="text-xs text-gray-400 mb-2">{{ res.name }} • {{ res.phone }}</div><div class="flex flex-wrap gap-2"><span v-for="p in res.plates" class="text-[10px] px-2 py-1 rounded font-mono border font-bold" :class="p.status === 'YASAKLI' ? 'bg-red-500/10 text-red-400 border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'">{{ p.plate }}</span></div></div><div class="flex gap-2"><button @click="startEdit(res)" class="btn-icon btn-icon-edit"><i class="fas fa-edit"></i></button><button @click="deleteResident(res.id)" class="btn-icon text-red-500 hover:bg-red-500/20"><i class="fas fa-trash"></i></button></div></div></div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'devices'" class="flex-1 p-8 overflow-y-auto flex justify-center pb-20">
+                <div class="w-full max-w-5xl grid grid-cols-2 gap-8">
+                    <div class="glass-panel p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2"><i class="fas fa-door-closed text-blue-400"></i> Kapı Yönetimi</h3><div class="space-y-4 mb-6"><input v-model="gateName" class="neo-input" placeholder="Kapı Adı"><div class="grid grid-cols-2 gap-4"><input v-model="gateIp" class="neo-input" placeholder="IP:Port"><input v-model="gateEndpoint" class="neo-input" placeholder="/open"></div><button @click="saveGate" class="neo-btn btn-primary w-full">KAPI KAYDET</button></div><div class="space-y-2"><div v-for="g in gates" class="bg-white/5 p-3 rounded-lg flex justify-between items-center border border-white/5"><div class="text-sm text-gray-300"><span class="font-bold text-white">{{ g.name }}</span> <span class="text-xs text-gray-500 ml-2">{{ g.ip_address }}</span></div><button @click="deleteGate(g.id)" class="text-red-400 hover:text-white"><i class="fas fa-trash"></i></button></div></div></div>
+                    <div class="glass-panel p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-6 flex items-center gap-2"><i class="fas fa-video text-emerald-400"></i> Kamera Yönetimi</h3><div class="space-y-4 mb-6"><input v-model="camName" class="neo-input" placeholder="Kamera Adı"><div class="flex gap-4 text-sm text-gray-300 bg-black/20 p-2 rounded-lg border border-white/5"><label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="radio" value="WEBCAM" v-model="camType" class="accent-indigo-500"> Webcam</label><label class="flex items-center gap-2 cursor-pointer hover:text-white"><input type="radio" value="RTSP" v-model="camType" class="accent-indigo-500"> RTSP / IP</label></div><input v-model="camSource" class="neo-input" placeholder="ID (0) veya rtsp://..."><div v-if="camType==='RTSP'" class="grid grid-cols-2 gap-4"><input v-model="camUser" class="neo-input" placeholder="Kullanıcı"><input v-model="camPass" class="neo-input" placeholder="Şifre" type="password"></div><div class="flex gap-2"><select v-model="camSlot" class="neo-input bg-[#151B28]"><option :value="null">Slot Seç</option><option v-for="i in 4" :value="i" :disabled="isSlotOccupied(i)">Slot {{i}}</option></select><select v-model="camGateId" class="neo-input bg-[#151B28]"><option :value="null">Kapı Seç</option><option v-for="g in gates" :value="g.id">{{g.name}}</option></select></div><div class="flex gap-2"><button @click="saveCamera" class="neo-btn btn-primary flex-1">{{ editingCamId ? 'GÜNCELLE' : 'KAYDET' }}</button><button v-if="editingCamId" @click="cancelEditCam" class="neo-btn bg-gray-700 text-white">İPTAL</button></div></div><div class="space-y-2"><div v-for="c in cameras" class="bg-white/5 p-3 rounded-lg flex justify-between items-center border border-white/5"><div><span class="font-bold text-white text-sm">{{ c.name }}</span> <span class="text-[10px] bg-gray-700 px-1.5 rounded ml-2 text-gray-300">SLOT {{c.slot}}</span></div><div class="flex gap-2"><button @click="startEditCam(c)" class="text-blue-400 hover:text-white text-xs"><i class="fas fa-pen"></i></button><button @click="deleteCamera(c.id)" class="text-red-400 hover:text-white text-xs"><i class="fas fa-trash"></i></button></div></div></div></div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'settings'" class="flex-1 p-8 overflow-y-auto flex justify-center pb-20">
+                <div class="glass-panel p-8 rounded-xl w-full max-w-2xl">
+                     <h3 class="text-2xl font-bold text-white mb-6 border-b border-white/10 pb-4">Sistem Ayarları</h3>
+                     <div class="bg-black/20 p-6 rounded-xl border border-white/5 mb-6">
+                         <div class="flex justify-between items-center">
+                             <div><h4 class="text-lg font-semibold text-white">Performans Modu</h4><p class="text-sm text-gray-400 mt-1">Donanım gücüne göre yapay zeka hızını ayarlar.</p></div>
+                             <div class="flex bg-black p-1 rounded-lg gap-1">
+                                 <button @click="saveSettings('low')" class="px-4 py-2 rounded-md text-xs font-bold transition" :class="settings.mode==='low'?'bg-indigo-600 text-white':'text-gray-400 hover:text-white'">EKO (i3/i5)</button>
+                                 <button @click="saveSettings('high')" class="px-4 py-2 rounded-md text-xs font-bold transition" :class="settings.mode==='high'?'bg-red-600 text-white':'text-gray-400 hover:text-white'">TURBO (i7+)</button>
+                             </div>
+                         </div>
+                     </div>
+                     
+                     <div class="bg-black/20 p-6 rounded-xl border border-white/5 mb-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <div><h4 class="text-lg font-semibold text-white">Veri Yönetimi</h4><p class="text-sm text-gray-400 mt-1">Yedekleme ve Toplu Veri Yükleme</p></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="p-4 bg-white/5 rounded-lg border border-white/5 text-center hover:border-indigo-500/30 transition">
+                                <i class="fas fa-download text-2xl text-indigo-400 mb-2"></i>
+                                <h5 class="font-bold text-white mb-1">Yedek Al</h5>
+                                <button @click="downloadBackup" class="text-xs text-indigo-300 hover:text-white underline">Veritabanını İndir</button>
+                            </div>
+                            <div class="p-4 bg-white/5 rounded-lg border border-white/5 text-center hover:border-emerald-500/30 transition">
+                                <i class="fas fa-file-csv text-2xl text-emerald-400 mb-2"></i>
+                                <h5 class="font-bold text-white mb-1">Toplu Yükleme</h5>
+                                <div class="flex flex-col gap-2 mt-2">
+                                    <button @click="downloadTemplate" class="text-[10px] text-gray-400 hover:text-white underline">Şablon İndir</button>
+                                    <label class="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white py-1 px-3 rounded text-xs font-bold transition">
+                                        DOSYA SEÇ
+                                        <input type="file" class="hidden" accept=".csv" @change="uploadResidents">
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs text-yellow-200">
+                            <i class="fas fa-exclamation-circle mr-1"></i> Veritabanı yedeğini geri yüklemek için dosyayı sürükleyip bırakın. (Yakında)
+                        </div>
+                     </div>
+
+                     <div class="bg-red-500/10 p-6 rounded-xl border border-red-500/20">
+                         <h4 class="text-lg font-semibold text-red-400 mb-2">Alarm Testi</h4>
+                         <p class="text-sm text-gray-400 mb-4">Sistemdeki görsel ve sesli alarmı manuel olarak tetikler.</p>
+                         <button @click="testAlarm" class="neo-btn w-full bg-red-600 hover:bg-red-500 text-white"><i class="fas fa-bell mr-2"></i> TEST BAŞLAT</button>
+                     </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="absolute bottom-0 left-0 w-full h-14 bg-[#0F172A]/95 border-t border-white/10 flex items-center px-6 z-30 backdrop-blur-md shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
+            <div class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mr-8 flex items-center gap-2 shrink-0">
+                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span></span>
+                SON HAREKETLER
+            </div>
+            <div class="flex-1 h-full relative overflow-hidden">
+                <transition name="slide-up" mode="out-in">
+                    <div v-if="lastLog" :key="lastLog.time + lastLog.plate" class="absolute inset-0 flex items-center justify-between px-2">
+                         <div class="flex items-center gap-6">
+                             <span class="text-white font-bold text-xl plate-font tracking-wider drop-shadow-md">{{ lastLog.plate }}</span>
+                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" :class="lastLog.gate_opened ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'">{{ lastLog.gate_opened ? 'GİRİŞ ONAYLANDI' : 'GİRİŞ REDDEDİLDİ' }}</span>
+                         </div>
+                         <div class="flex items-center gap-6 text-xs text-gray-400">
+                             <div class="flex items-center gap-2"><i class="fas fa-user text-indigo-400"></i> <span class="text-white font-medium">{{ lastLog.owner || 'Tanımsız' }}</span></div>
+                             <div class="flex items-center gap-2"><i class="fas fa-clock text-indigo-400"></i> <span class="font-mono">{{ lastLog.timestamp || lastLog.time }}</span></div>
+                         </div>
+                    </div>
+                    <div v-else class="absolute inset-0 flex items-center text-gray-500 text-xs italic">Beklemede...</div>
+                </transition>
+            </div>
+        </div>
+
+    </main>
+
+    <transition name="modal"><div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" @click.self="showDetailModal = false"><div class="glass-panel p-8 rounded-2xl max-w-md w-full relative border border-white/10 shadow-2xl transform transition-all scale-100 bg-[#0F172A]"><button @click="showDetailModal = false" class="absolute top-4 right-4 text-gray-500 hover:text-white transition"><i class="fas fa-times text-xl"></i></button><div class="flex flex-col items-center text-center"><div class="w-64 h-40 mb-6 overflow-hidden rounded-lg border-2 border-white/10 bg-black relative group"><img v-if="selectedLog.image_path" :src="selectedLog.image_path" class="w-full h-full object-cover"><div v-else class="w-full h-full flex items-center justify-center text-gray-700"><i class="fas fa-video-slash text-4xl"></i></div></div><h2 class="text-5xl font-black text-white plate-font tracking-widest mb-3 drop-shadow-lg">{{ selectedLog.plate }}</h2><div class="flex gap-2 mb-8"><span class="px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest border" :class="getBadgeClass(selectedLog.status)">{{ selectedLog.status }}</span><span v-if="selectedLog.gate_opened" class="px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest bg-emerald-500 text-black border border-emerald-400">KAPI AÇILDI</span></div><div class="w-full bg-white/5 p-5 rounded-xl border border-white/5 text-left space-y-3"><div class="flex justify-between items-center border-b border-white/5 pb-2"><span class="text-xs text-gray-500 font-bold uppercase">Araç Sahibi</span><span class="text-sm text-white font-medium">{{ selectedLog.owner }}</span></div><div class="flex justify-between items-center border-b border-white/5 pb-2"><span class="text-xs text-gray-500 font-bold uppercase">Zaman</span><span class="text-sm text-blue-400 font-mono">{{ selectedLog.timestamp || selectedLog.time }}</span></div><div class="flex justify-between items-center"><span class="text-xs text-gray-500 font-bold uppercase">Kamera</span><span class="text-sm text-white">{{ selectedLog.camera }}</span></div></div></div></div></div></transition>
+    <transition name="modal"><div v-if="showBannedAlert" class="fixed inset-0 z-[100] flex items-center justify-center bg-red-600/20 backdrop-blur-lg" @click="showBannedAlert = false"><div class="bg-red-950/90 p-10 rounded-3xl border-2 border-red-500 shadow-[0_0_100px_rgba(220,38,38,0.5)] text-center animate-bounce relative overflow-hidden"><i class="fas fa-exclamation-triangle text-8xl text-red-500 mb-6 drop-shadow-lg"></i><h1 class="text-6xl font-black text-white mb-2 tracking-tighter">DİKKAT!</h1><p class="text-red-300 text-xl font-bold uppercase tracking-widest mb-8">Yasaklı Araç Tespiti</p><div class="bg-black/50 text-white text-5xl font-bold px-12 py-6 rounded-xl inline-block plate-font border border-red-500/50 shadow-inner">{{ bannedPlate }}</div><div class="mt-10"><button @click.stop="showBannedAlert = false" class="bg-white text-red-900 px-10 py-3 rounded-full font-bold hover:bg-gray-200 transition shadow-lg uppercase text-sm tracking-widest">Alarmı Sustur</button></div></div></div></transition>
+
+</div>
+
+<script>
+    const { createApp } = Vue
+    createApp({
+        data() {
+            return {
+                currentTab: 'dashboard', connected: false, logs: [], sysStats: {cpu:0, ram:0},
+                tabs: [{id:'dashboard',name:'Panel',icon:'fas fa-home'},{id:'sites',name:'Siteler',icon:'fas fa-city'},{id:'plates',name:'Sakin & Plaka',icon:'fas fa-users'},{id:'devices',name:'Cihazlar',icon:'fas fa-server'},{id:'settings',name:'Ayarlar',icon:'fas fa-cog'}],
+                sites: [], residents: [], gates: [], cameras: [], settings: {mode:'low'},
+                newSiteName:'', newBlockName:{}, newBlockCount:{},
+                editingSiteId: null, editingBlockIds: {},
+                gateName:'', gateIp:'', gateEndpoint:'/open', editingGateId:null,
+                camName:'', camType:'WEBCAM', camSource:'', camUser:'', camPass:'', camSlot:null, camGateId:null, editingCamId:null,
+                selectedSite:null, selectedBlock:null, resFlat:null, resName:'', resPhone:'', resPlates:[{plate:'', status:'IZINLI'}], editingId:null, searchQuery:'',
+                showDetailModal: false, selectedLog: {}, showBannedAlert: false, bannedPlate: '', currentTime: ''
+            }
+        },
+        computed: {
+            pageTitle() { return this.tabs.find(t => t.id === this.currentTab)?.name || 'Panel'; },
+            lastLog() { return this.logs.length > 0 ? this.logs[0] : null; },
+            allowedCount() { return this.logs.filter(l => l.status === 'IZINLI').length; },
+            guestCount() { return this.logs.filter(l => l.status === 'MİSAFİR').length; },
+            bannedCount() { return this.logs.filter(l => l.status === 'YASAKLI').length; },
+            filteredResidents() { return this.residents.filter(r => r.name.toLowerCase().includes(this.searchQuery.toLowerCase()) || r.flat_number.toString().includes(this.searchQuery) || r.plates.some(p => p.plate.includes(this.searchQuery.toUpperCase()))); }
+        },
+        mounted() { this.connectWS(); this.fetchData(); setInterval(() => this.currentTime = new Date().toLocaleTimeString('tr-TR'), 1000); },
+        methods: {
+            handleCamError(e) { setTimeout(() => { e.target.src = e.target.src.split('?')[0] + "?" + Date.now(); }, 3000); },
+            getStatusColor(s) { if(s==='IZINLI') return 'border-l-emerald-500'; if(s==='YASAKLI') return 'border-l-red-500'; return 'border-l-yellow-500'; },
+            getBadgeClass(s) { if(s==='IZINLI') return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'; if(s==='YASAKLI') return 'bg-red-500/20 text-red-400 border border-red-500/30'; return 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'; },
+            showDetails(log) { this.selectedLog = log; this.showDetailModal = true; },
+            playAlarm() { const ctx = new (window.AudioContext||window.webkitAudioContext)(); const o = ctx.createOscillator(); o.type='square'; o.frequency.value=440; o.connect(ctx.destination); o.start(); setTimeout(()=>o.stop(), 500); },
+            testAlarm() { this.bannedPlate="TEST-34"; this.showBannedAlert=true; this.playAlarm(); },
+            
+            // IMPORT / EXPORT
+            downloadBackup() { window.location.href = '/api/backup/download'; },
+            downloadTemplate() { window.location.href = '/api/import/template'; },
+            async uploadResidents(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                const res = await fetch('/api/import/residents', {method: 'POST', body: formData});
+                const data = await res.json();
+                alert(data.message);
+                this.fetchData();
+            },
+
+            async fetchData() { try { this.sites = await (await fetch('/api/sites')).json(); this.residents = await (await fetch('/api/residents')).json(); this.gates = await (await fetch('/api/gates')).json(); this.cameras = await (await fetch('/api/cameras')).json(); const hist = await (await fetch('/api/history')).json(); this.logs = hist.map(l => ({...l, time: l.timestamp || l.time})); const set = await (await fetch('/api/settings')).json(); this.settings.mode = set.mode; } catch(e) {} },
+            async saveSettings(mode) { this.settings.mode = mode; await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:mode})}); alert("Mod değiştirildi!"); },
+            async addSite() { if(this.editingSiteId) { await fetch(`/api/sites/${this.editingSiteId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:this.newSiteName})}); this.editingSiteId=null; } else { if(!this.newSiteName) return; await fetch('/api/sites', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:this.newSiteName})}); } this.newSiteName = ''; this.fetchData(); },
+            startEditSite(site) { this.newSiteName = site.name; this.editingSiteId = site.id; },
+            cancelEditSite() { this.newSiteName = ''; this.editingSiteId = null; },
+            async deleteSite(id) { await fetch(`/api/sites/${id}`, {method:'DELETE'}); this.fetchData(); },
+            async saveBlock(siteId) { const name = this.newBlockName[siteId]; const count = this.newBlockCount[siteId]; if(!name) return; if(this.editingBlockIds[siteId]) { await fetch(`/api/blocks/${this.editingBlockIds[siteId]}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({site_id:siteId, name:name, flat_count:count})}); delete this.editingBlockIds[siteId]; } else { await fetch('/api/blocks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({site_id:siteId, name:name, flat_count:count || 10})}); } this.newBlockName[siteId] = ''; this.newBlockCount[siteId] = ''; this.fetchData(); },
+            startEditBlock(block, siteId) { this.newBlockName[siteId] = block.name; this.newBlockCount[siteId] = block.flat_count; this.editingBlockIds[siteId] = block.id; },
+            cancelEditBlock(siteId) { this.newBlockName[siteId] = ''; this.newBlockCount[siteId] = ''; delete this.editingBlockIds[siteId]; },
+            startEdit(res) { this.editingId = res.id; this.resName = res.name; this.resPhone = res.phone; this.resFlat = res.flat_number; const s = this.sites.find(s => s.name === res.site_name); if(s) { this.selectedSite = s; this.selectedBlock = s.blocks.find(b => b.id === res.block_id_real); } this.resPlates = JSON.parse(JSON.stringify(res.plates)); if(this.resPlates.length === 0) this.resPlates.push({plate:'', status:'IZINLI'}); this.currentTab = 'plates'; },
+            cancelEdit() { this.editingId = null; this.resName = ''; this.resPhone=''; this.resPlates = [{plate:'', status:'IZINLI'}]; this.resFlat = null; },
+            addPlateInput() { if(this.resPlates.length < 5) this.resPlates.push({plate:'', status:'IZINLI'}); },
+            async saveResident() { if(!this.selectedBlock || !this.resName) return alert("Eksik Bilgi!"); const payload = { block_id: this.selectedBlock.id, flat_number: this.resFlat, name: this.resName, phone: this.resPhone, plates: this.resPlates }; if (this.editingId) await fetch(`/api/residents/${this.editingId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/residents', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEdit(); this.fetchData(); },
+            async deleteResident(id) { if(confirm("Silinecek mi?")) { await fetch(`/api/residents/${id}`, {method:'DELETE'}); this.fetchData(); } },
+            startEditGate(g) { this.editingGateId = g.id; this.gateName = g.name; this.gateIp = g.ip_address; this.gateEndpoint = g.endpoint; },
+            cancelEditGate() { this.editingGateId = null; this.gateName = ''; this.gateIp = ''; this.gateEndpoint = '/open'; },
+            async saveGate() { const payload = {name:this.gateName, ip_address:this.gateIp, endpoint:this.gateEndpoint}; if(this.editingGateId) await fetch(`/api/gates/${this.editingGateId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/gates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEditGate(); this.fetchData(); },
+            async deleteGate(id) { await fetch(`/api/gates/${id}`, {method:'DELETE'}); this.fetchData(); },
+            startEditCam(c) { this.editingCamId = c.id; this.camName = c.name; this.camType = c.type; this.camSource = c.source; this.camUser = c.rtsp_user; this.camPass = c.rtsp_pass; this.camSlot = c.slot; this.camGateId = c.gate_id; },
+            cancelEditCam() { this.editingCamId = null; this.camName = ''; this.camType = 'WEBCAM'; this.camSource = ''; this.camUser=''; this.camPass=''; this.camSlot=null; this.camGateId=null; },
+            async saveCamera() { if (!this.camSlot) return alert("Slot seçmelisiniz!"); const payload = { name: this.camName, type: this.camType, source: this.camSource, rtsp_user: this.camUser, rtsp_pass: this.camPass, slot: this.camSlot, gate_id: this.camGateId }; if(this.editingCamId) await fetch(`/api/cameras/${this.editingCamId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); else await fetch('/api/cameras', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); this.cancelEditCam(); this.fetchData(); },
+            async deleteCamera(id) { await fetch(`/api/cameras/${id}`, {method:'DELETE'}); this.fetchData(); },
+            isSlotOccupied(slot) { if (this.editingCamId) { return this.cameras.some(c => c.slot === slot && c.id !== this.editingCamId); } return this.cameras.some(c => c.slot === slot); },
+
+            connectWS() {
+                const ws = new WebSocket("ws://localhost:8000/ws");
+                ws.onopen = () => { this.connected = true; };
+                ws.onclose = () => { this.connected = false; setTimeout(this.connectWS, 2000); };
+                ws.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    if(data.type === 'sys_stats') { this.sysStats = data; return; }
+                    if(data.type === 'log') {
+                        const logData = {...data, time: data.time || data.timestamp};
+                        // ALARM MANTIĞI: Sadece 10 saniye içindeki YENİ olaylar
+                        const logTime = new Date(); // Şu anki zaman
+                        // Not: Veritabanından gelen eski kayıtlar için alarm çalmasın diye basit bir kontrol
+                        // Gerçekte timestamp parse edilip kıyaslanmalı ama bu basit çözüm:
+                        // Eğer sayfa açıkken veri geliyorsa (ws) bu "yeni"dir.
+                        if(logData.status === 'YASAKLI') { 
+                            this.bannedPlate = logData.plate; 
+                            this.showBannedAlert = true; 
+                            this.playAlarm(); 
+                        }
+                        if (this.logs.length > 0 && this.logs[0].plate === logData.plate && this.logs[0].time === logData.time) return;
+                        this.logs.unshift(logData);
+                        if(this.logs.length > 50) this.logs.pop();
+                    }
+                };
+            }
+        }
+    }).mount('#app')
+</script>
+</body>
+</html>
