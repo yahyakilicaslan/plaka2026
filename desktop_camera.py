@@ -32,8 +32,9 @@ import numpy as np
 import requests
 import websocket  # websocket-client
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve, QUrl, QByteArray, QObject
 from PyQt5.QtGui import QImage, QPixmap, QFont
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QSizePolicy,
@@ -60,10 +61,9 @@ WS_URL = API_URL.replace("http://", "ws://").replace("https://", "wss://") + "/w
 SLOT_COUNT = args.slots
 
 # ------------------------- Kamera Thread -------------------------------
-class CameraReaderThread(QThread):
-    """LPR Engine MJPEG stream okuyucu.
-    cv2.VideoCapture(HTTP) hang sorunlarından kaçınmak için
-    `requests` ile chunked streaming + manuel MJPEG parse yapar.
+class MjpegReader(QObject):
+    """Qt native MJPEG stream reader (QNetworkAccessManager tabanlı).
+    Threading YOK - tamamen Qt event loop içinde çalışır, Windows/Linux uyumlu.
     """
     frame_ready = pyqtSignal(int, object)
     status_changed = pyqtSignal(int, str)
@@ -73,94 +73,123 @@ class CameraReaderThread(QThread):
         self.slot = slot
         self.engine_url = engine_url
         self._enabled = False
-        self._running = True
+        self._manager = QNetworkAccessManager(self)
+        self._reply = None
+        self._buffer = QByteArray()
+        self._frame_count = 0
+        self._last_frame_ts = 0.0
+        self._connected_printed = False
+        # Watchdog: belli aralıkta veri gelmezse yeniden bağlan
+        self._watchdog = QTimer(self)
+        self._watchdog.setInterval(2000)
+        self._watchdog.timeout.connect(self._check_alive)
 
     def set_enabled(self, en: bool):
-        if en != self._enabled:
-            print(f"[KAMERA-{self.slot}] set_enabled({en})")
+        if en == self._enabled:
+            return
+        print(f"[KAMERA-{self.slot}] set_enabled({en})")
         self._enabled = en
+        if en:
+            self._start()
+        else:
+            self._stop()
 
-    def stop(self):
-        self._running = False
-
-    def _read_stream(self, url: str):
-        """MJPEG akışını parse eder. Her JPEG kare'yi emit eder."""
+    def _start(self):
+        self._stop()  # eski bağlantı temizlensin
+        url = f"{self.engine_url}/video_feed/CAM-0{self.slot}"
+        print(f"[KAMERA-{self.slot}] MJPEG baglaniyor: {url}")
+        self.status_changed.emit(self.slot, "BAGLANIYOR")
+        req = QNetworkRequest(QUrl(url))
+        req.setAttribute(QNetworkRequest.FollowRedirectsAttribute, True)
+        # Keep-alive & no buffering
+        req.setHeader(QNetworkRequest.UserAgentHeader, "EVO-Desktop/1.0")
+        self._reply = self._manager.get(req)
+        self._buffer = QByteArray()
+        self._frame_count = 0
+        self._last_frame_ts = time.time()
+        self._connected_printed = False
+        self._reply.readyRead.connect(self._on_ready_read)
+        self._reply.finished.connect(self._on_finished)
         try:
-            print(f"[KAMERA-{self.slot}] MJPEG baglaniyor: {url}")
-            self.status_changed.emit(self.slot, "BAGLANIYOR")
-            r = requests.get(url, stream=True, timeout=(5, 15))
-            if r.status_code != 200:
-                print(f"[KAMERA-{self.slot}] HTTP {r.status_code} - {url}")
-                self.status_changed.emit(self.slot, "OFFLINE")
-                return False
+            self._reply.errorOccurred.connect(self._on_error)  # Qt 5.15+
+        except AttributeError:
+            self._reply.error.connect(self._on_error)
+        self._watchdog.start()
 
-            print(f"[KAMERA-{self.slot}] MJPEG baglandi (HTTP 200). Akis basliyor...")
-            self.status_changed.emit(self.slot, "ONLINE")
-
-            buf = bytearray()
-            frames_emitted = 0
-            last_log = time.time()
-
-            for chunk in r.iter_content(chunk_size=4096):
-                if not self._running or not self._enabled:
-                    break
-                if not chunk:
-                    continue
-                buf.extend(chunk)
-                # JPEG kare sınırlarını bul
-                while True:
-                    a = buf.find(b'\xff\xd8')
-                    if a < 0:
-                        # JPEG başı yok, buffer'ı küçük tut
-                        if len(buf) > 65536:
-                            del buf[:-2]
-                        break
-                    b = buf.find(b'\xff\xd9', a + 2)
-                    if b < 0:
-                        # JPEG sonu henüz gelmedi
-                        if a > 0:
-                            del buf[:a]
-                        break
-                    jpg = bytes(buf[a:b + 2])
-                    del buf[:b + 2]
-                    try:
-                        arr = np.frombuffer(jpg, dtype=np.uint8)
-                        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                        if frame is not None:
-                            self.frame_ready.emit(self.slot, frame)
-                            frames_emitted += 1
-                            if time.time() - last_log > 10.0:
-                                print(f"[KAMERA-{self.slot}] Akiyor - son 10 sn'de {frames_emitted} kare")
-                                frames_emitted = 0
-                                last_log = time.time()
-                    except Exception as e:
-                        print(f"[KAMERA-{self.slot}] JPEG decode hata: {e}")
-            try: r.close()
+    def _stop(self):
+        self._watchdog.stop()
+        if self._reply is not None:
+            try: self._reply.abort()
             except Exception: pass
-            return True
-        except requests.exceptions.ConnectionError as e:
-            print(f"[KAMERA-{self.slot}] Baglanti reddedildi (engine kapali mi?): {e}")
-            self.status_changed.emit(self.slot, "OFFLINE")
-            return False
-        except requests.exceptions.Timeout as e:
-            print(f"[KAMERA-{self.slot}] Timeout: {e}")
-            self.status_changed.emit(self.slot, "OFFLINE")
-            return False
-        except Exception as e:
-            print(f"[KAMERA-{self.slot}] HATA: {type(e).__name__}: {e}")
-            self.status_changed.emit(self.slot, "OFFLINE")
-            return False
+            try: self._reply.deleteLater()
+            except Exception: pass
+            self._reply = None
+        self._buffer = QByteArray()
 
-    def run(self):
-        stream_url = f"{self.engine_url}/video_feed/CAM-0{self.slot}"
-        while self._running:
-            if not self._enabled:
-                self.status_changed.emit(self.slot, "BOS")
-                time.sleep(1.0)
-                continue
-            self._read_stream(stream_url)
-            # Kısa bekleme sonrası yeniden dene
-            time.sleep(2.0)
+    def _check_alive(self):
+        if not self._enabled:
+            return
+        if time.time() - self._last_frame_ts > 8.0:
+            print(f"[KAMERA-{self.slot}] Veri akmiyor (8sn), yeniden baglanilacak.")
+            self.status_changed.emit(self.slot, "OFFLINE")
+            QTimer.singleShot(500, self._start)
+
+    def _on_ready_read(self):
+        if self._reply is None:
+            return
+        # İlk veri geldiğinde log at
+        if not self._connected_printed:
+            code = self._reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+            print(f"[KAMERA-{self.slot}] MJPEG baglandi (HTTP {code}). Akis basladi.")
+            self.status_changed.emit(self.slot, "ONLINE")
+            self._connected_printed = True
+
+        data = self._reply.readAll()
+        if data.size() == 0:
+            return
+        self._buffer.append(data)
+        # JPEG kare sınırlarını bul
+        # QByteArray.indexOf byte aramak için
+        while True:
+            a = self._buffer.indexOf(b'\xff\xd8')
+            if a < 0:
+                if self._buffer.size() > 65536:
+                    self._buffer = self._buffer.right(2)
+                break
+            b = self._buffer.indexOf(b'\xff\xd9', a + 2)
+            if b < 0:
+                if a > 0:
+                    self._buffer = self._buffer.mid(a)
+                break
+            jpg_ba = self._buffer.mid(a, b + 2 - a)
+            self._buffer = self._buffer.mid(b + 2)
+            try:
+                arr = np.frombuffer(bytes(jpg_ba), dtype=np.uint8)
+                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    self._last_frame_ts = time.time()
+                    self._frame_count += 1
+                    self.frame_ready.emit(self.slot, frame)
+                    if self._frame_count in (1, 10) or self._frame_count % 300 == 0:
+                        print(f"[KAMERA-{self.slot}] Akiyor - toplam {self._frame_count} kare")
+            except Exception as e:
+                print(f"[KAMERA-{self.slot}] JPEG decode hata: {e}")
+
+    def _on_finished(self):
+        if not self._enabled:
+            return
+        print(f"[KAMERA-{self.slot}] Baglanti bitti, 2sn sonra yeniden denenecek.")
+        self.status_changed.emit(self.slot, "OFFLINE")
+        QTimer.singleShot(2000, self._start)
+
+    def _on_error(self, *args):
+        err = ""
+        try:
+            err = self._reply.errorString() if self._reply else str(args)
+        except Exception:
+            err = str(args)
+        print(f"[KAMERA-{self.slot}] Ag hatasi: {err}")
+        self.status_changed.emit(self.slot, "OFFLINE")
 
 
 # ----------------------- WebSocket Dinleyici --------------------------
@@ -651,13 +680,12 @@ class MainWindow(QMainWindow):
             self.cameras[i] = w
         root.addLayout(grid, stretch=1)
 
-        # Thread'ler
+        # MJPEG readers (Qt native, thread yok - UI event loop'ta)
         self.readers = {}
         for i in range(1, slot_count + 1):
-            t = CameraReaderThread(i, self.engine_url, self)
+            t = MjpegReader(i, self.engine_url, self)
             t.frame_ready.connect(self._on_frame)
             t.status_changed.connect(self._on_status)
-            t.start()
             self.readers[i] = t
 
         self.ws = WSThread(ws_url, self)
@@ -809,8 +837,8 @@ class MainWindow(QMainWindow):
                 )
 
     def closeEvent(self, event):
-        for t in self.readers.values():
-            try: t.stop(); t.quit()
+        for r in self.readers.values():
+            try: r.set_enabled(False)
             except Exception: pass
         try: self.ws.stop(); self.ws.quit()
         except Exception: pass
