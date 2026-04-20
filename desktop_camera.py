@@ -43,108 +43,96 @@ from PyQt5.QtWidgets import (
 parser = argparse.ArgumentParser()
 parser.add_argument("--api", default=os.environ.get("LPR_API", "http://127.0.0.1:8000"),
                     help="Backend API base URL (default http://127.0.0.1:8000)")
+parser.add_argument("--engine", default=os.environ.get("LPR_ENGINE", "http://127.0.0.1:5001"),
+                    help="LPR engine MJPEG base URL (default http://127.0.0.1:5001)")
 parser.add_argument("--slots", type=int, default=4, help="Kamera slot sayısı")
 args, _ = parser.parse_known_args()
 
-API_URL = args.api.strip().rstrip("/")
-# IPv6/IPv4 sorunu: localhost -> 127.0.0.1 zorla
-API_URL = API_URL.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
-# Her turlu beyaz bosluk temizle
-API_URL = "".join(API_URL.split())
+def _clean(u: str) -> str:
+    u = (u or "").strip().rstrip("/")
+    u = u.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
+    return "".join(u.split())
+
+API_URL = _clean(args.api)
+ENGINE_URL = _clean(args.engine)
 WS_URL = API_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
 SLOT_COUNT = args.slots
 
 # ------------------------- Kamera Thread -------------------------------
 class CameraReaderThread(QThread):
-    """RTSP/WebCam RAW okur, son kare'yi paylaşır. MJPEG KULLANMAZ."""
+    """LPR Engine MJPEG stream okuyucu.
+    Kamera çakışmasını önlemek için doğrudan webcam/RTSP açmak yerine
+    detector.py'nin (port 5001) sunduğu canlı MJPEG akışını çeker.
+    Bonus: Plaka kutusu overlay'leri detector tarafından zaten çiziliyor.
+    """
     frame_ready = pyqtSignal(int, object)
     status_changed = pyqtSignal(int, str)
 
-    def __init__(self, slot: int, parent=None):
+    def __init__(self, slot: int, engine_url: str, parent=None):
         super().__init__(parent)
         self.slot = slot
-        self.config = None
+        self.engine_url = engine_url
+        self._enabled = False  # config geldiğinde aktif olur
         self._running = True
-        self._config_sig = None
 
-    def set_config(self, cfg: dict):
-        self.config = cfg
-
-    def _build_src(self):
-        if not self.config:
-            return None
-        src = self.config.get("source", "")
-        if self.config.get("type") == "RTSP":
-            u = self.config.get("rtsp_user", "") or ""
-            p = self.config.get("rtsp_pass", "") or ""
-            if u and p and str(src).startswith("rtsp://"):
-                src = src.replace("rtsp://", f"rtsp://{u}:{p}@")
-            return src
-        return int(src) if str(src).isdigit() else src
+    def set_enabled(self, en: bool):
+        self._enabled = en
 
     def stop(self):
         self._running = False
 
     def run(self):
         cap = None
+        stream_url = f"{self.engine_url}/video_feed/CAM-0{self.slot}"
         last_frame_t = time.time()
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+
         while self._running:
-            sig = json.dumps(self.config, sort_keys=True) if self.config else None
-            if sig != self._config_sig:
+            if not self._enabled:
                 if cap is not None:
                     try: cap.release()
                     except Exception: pass
                     cap = None
-                self._config_sig = sig
-
-            if not self.config:
                 self.status_changed.emit(self.slot, "BOS")
                 time.sleep(1.0)
                 continue
 
             if cap is None:
                 self.status_changed.emit(self.slot, "BAGLANIYOR")
-                src = self._build_src()
                 try:
-                    if self.config.get("type") == "RTSP":
-                        cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
-                    else:
-                        if os.name == "nt" and isinstance(src, int):
-                            cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
-                        else:
-                            cap = cv2.VideoCapture(src)
+                    cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
                     if cap and cap.isOpened():
                         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         self.status_changed.emit(self.slot, "ONLINE")
                         last_frame_t = time.time()
+                        print(f"[KAMERA-{self.slot}] MJPEG baglandi: {stream_url}")
                     else:
                         cap = None
                         self.status_changed.emit(self.slot, "OFFLINE")
                         time.sleep(2.0)
                         continue
-                except Exception:
+                except Exception as e:
+                    print(f"[KAMERA-{self.slot}] HATA: {e}")
                     cap = None
                     self.status_changed.emit(self.slot, "OFFLINE")
                     time.sleep(2.0)
                     continue
 
             try:
-                if time.time() - last_frame_t > 5.0:
+                # 10 sn'den fazla frame gelmediyse reconnect
+                if time.time() - last_frame_t > 10.0:
                     try: cap.release()
                     except Exception: pass
                     cap = None
+                    print(f"[KAMERA-{self.slot}] Timeout, yeniden baglanilacak.")
                     continue
-                ok = cap.grab()
-                if not ok:
-                    time.sleep(0.03); continue
-                ok, frame = cap.retrieve()
+                ok, frame = cap.read()
                 if not ok or frame is None:
-                    time.sleep(0.01); continue
+                    time.sleep(0.03)
+                    continue
                 last_frame_t = time.time()
                 self.frame_ready.emit(self.slot, frame)
                 time.sleep(0.01)
-            except Exception:
+            except Exception as e:
                 try: cap.release()
                 except Exception: pass
                 cap = None
@@ -596,7 +584,8 @@ class MainWindow(QMainWindow):
 
         self.api_url = api_url
         self.ws_url = ws_url
-        self._site_cache = {}  # plate -> (site, block) cache (hızlı lookup)
+        self.engine_url = ENGINE_URL
+        self._site_cache = {}
 
         central = QWidget(); self.setCentralWidget(central)
         root = QVBoxLayout(central); root.setContentsMargins(12, 12, 12, 12); root.setSpacing(10)
@@ -623,7 +612,7 @@ class MainWindow(QMainWindow):
         # Thread'ler
         self.readers = {}
         for i in range(1, slot_count + 1):
-            t = CameraReaderThread(i, self)
+            t = CameraReaderThread(i, self.engine_url, self)
             t.frame_ready.connect(self._on_frame)
             t.status_changed.connect(self._on_status)
             t.start()
@@ -649,9 +638,11 @@ class MainWindow(QMainWindow):
 
         # Baslangic teshis logu (cmd penceresinde gorunur)
         print("=" * 60)
-        print(f"[EVO DESKTOP] API URL  : {api_url}")
-        print(f"[EVO DESKTOP] WS URL   : {ws_url}")
-        print(f"[EVO DESKTOP] Slot say.: {slot_count}")
+        print(f"[EVO DESKTOP] API URL    : {api_url}")
+        print(f"[EVO DESKTOP] ENGINE URL : {self.engine_url}  (MJPEG kaynagi)")
+        print(f"[EVO DESKTOP] WS URL     : {ws_url}")
+        print(f"[EVO DESKTOP] Slot say.  : {slot_count}")
+        print(f"[EVO DESKTOP] Kamera modu: MJPEG (engine'den cekiliyor - cakisma onleme)")
         print("=" * 60)
 
     def refresh_cameras(self):
@@ -664,7 +655,7 @@ class MainWindow(QMainWindow):
             for slot, w in self.cameras.items():
                 cfg = by_slot.get(slot)
                 w.set_config(cfg)
-                self.readers[slot].set_config(cfg)
+                self.readers[slot].set_enabled(bool(cfg))
 
         def _apply_error(err_msg):
             short = (err_msg[:60] + "…") if len(err_msg) > 60 else err_msg
