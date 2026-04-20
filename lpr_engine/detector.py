@@ -30,7 +30,7 @@ from openvino.runtime import Core
 
 warnings.simplefilter('ignore')
 
-API_URL = "http://localhost:8000"
+API_URL = "http://127.0.0.1:8000"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGE_FOLDER = os.path.join(PROJECT_ROOT, 'captured_images')
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')

@@ -694,4 +694,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect: manager.disconnect(websocket)
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("   EVO SMART LPR BACKEND - v77.50 ULTRA-VISION")
+    print(f"   HTTP dinleyici: http://0.0.0.0:8000  (IPv4)")
+    print(f"   Desktop/LPR Engine icin: http://127.0.0.1:8000")
+    print("=" * 60)
     uvicorn.run(app, host="0.0.0.0", port=8000)

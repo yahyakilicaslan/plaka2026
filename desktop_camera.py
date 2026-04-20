@@ -41,12 +41,14 @@ from PyQt5.QtWidgets import (
 
 # ---------------------------- Argparse --------------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--api", default=os.environ.get("LPR_API", "http://localhost:8000"),
-                    help="Backend API base URL (default http://localhost:8000)")
+parser.add_argument("--api", default=os.environ.get("LPR_API", "http://127.0.0.1:8000"),
+                    help="Backend API base URL (default http://127.0.0.1:8000)")
 parser.add_argument("--slots", type=int, default=4, help="Kamera slot sayısı")
 args, _ = parser.parse_known_args()
 
 API_URL = args.api.rstrip("/")
+# IPv6/IPv4 sorunu: localhost -> 127.0.0.1 zorla
+API_URL = API_URL.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
 WS_URL = API_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
 SLOT_COUNT = args.slots
 
@@ -633,41 +635,62 @@ class MainWindow(QMainWindow):
         self.cfg_timer = QTimer(self)
         self.cfg_timer.timeout.connect(self.refresh_cameras)
         self.cfg_timer.start(8000)
-        QTimer.singleShot(200, self.refresh_cameras)
+        # Agresif ilk bağlantı: 0 / 1.5 / 3.5 sn
+        QTimer.singleShot(0, self.refresh_cameras)
+        QTimer.singleShot(1500, self.refresh_cameras)
+        QTimer.singleShot(3500, self.refresh_cameras)
 
         self.res_timer = QTimer(self)
         self.res_timer.timeout.connect(self.refresh_residents)
-        self.res_timer.start(60000)  # 60 sn bir tüm sakinleri cache'le
-        QTimer.singleShot(500, self.refresh_residents)
+        self.res_timer.start(60000)
+        QTimer.singleShot(800, self.refresh_residents)
+
+        # Baslangic teshis logu (cmd penceresinde gorunur)
+        print("=" * 60)
+        print(f"[EVO DESKTOP] API URL  : {api_url}")
+        print(f"[EVO DESKTOP] WS URL   : {ws_url}")
+        print(f"[EVO DESKTOP] Slot say.: {slot_count}")
+        print("=" * 60)
 
     def refresh_cameras(self):
-        def _on_done(cams):
-            if not isinstance(cams, list): return
-            by_slot = {c.get("slot"): c for c in cams}
-            def _apply():
-                self.status_hdr.setText("● Backend: bağlı")
-                self.status_hdr.setStyleSheet("color:#10b981; font-weight:700; font-size:11px;")
-                for slot, w in self.cameras.items():
-                    cfg = by_slot.get(slot)
-                    w.set_config(cfg)
-                    self.readers[slot].set_config(cfg)
-            QTimer.singleShot(0, _apply)
+        url = f"{self.api_url}/api/cameras"
 
-        def _on_err():
-            def _apply():
-                self.status_hdr.setText("● Backend: OFFLINE")
-                self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
-            QTimer.singleShot(0, _apply)
+        def _apply_success(cams):
+            self.status_hdr.setText(f"● Backend: bağlı ({self.api_url})")
+            self.status_hdr.setStyleSheet("color:#10b981; font-weight:700; font-size:11px;")
+            by_slot = {c.get("slot"): c for c in cams}
+            for slot, w in self.cameras.items():
+                cfg = by_slot.get(slot)
+                w.set_config(cfg)
+                self.readers[slot].set_config(cfg)
+
+        def _apply_error(err_msg):
+            short = (err_msg[:60] + "…") if len(err_msg) > 60 else err_msg
+            self.status_hdr.setText(f"● Backend: OFFLINE — {short}")
+            self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
 
         def _run():
             try:
-                r = requests.get(f"{self.api_url}/api/cameras", timeout=3)
+                r = requests.get(url, timeout=3)
                 if r.status_code == 200:
-                    _on_done(r.json())
+                    try:
+                        cams = r.json()
+                    except Exception as e:
+                        print(f"[BACKEND] JSON parse hatasi: {e}")
+                        QTimer.singleShot(0, lambda: _apply_error(f"JSON parse: {e}"))
+                        return
+                    if isinstance(cams, list):
+                        print(f"[BACKEND] Baglandi: {len(cams)} kamera config alindi. URL={url}")
+                        QTimer.singleShot(0, lambda: _apply_success(cams))
+                    else:
+                        QTimer.singleShot(0, lambda: _apply_error("beklenmeyen format"))
                 else:
-                    _on_err()
-            except Exception:
-                _on_err()
+                    print(f"[BACKEND] HTTP {r.status_code}: {url}")
+                    QTimer.singleShot(0, lambda: _apply_error(f"HTTP {r.status_code}"))
+            except Exception as e:
+                print(f"[BACKEND] Baglanti hatasi: {url} -> {e}")
+                err = str(e)
+                QTimer.singleShot(0, lambda: _apply_error(err))
         threading.Thread(target=_run, daemon=True).start()
 
     def refresh_residents(self):

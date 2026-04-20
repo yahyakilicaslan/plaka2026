@@ -18,30 +18,32 @@ if not exist venv\ (
     exit /b
 )
 
+set LPR_API=http://127.0.0.1:8000
+
 echo [1/4] Backend (API) baslatiliyor...
 start "LPR_BACKEND" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python backend\main.py"
 
-timeout /t 3 >nul
+timeout /t 4 >nul
 
 echo [2/4] Yapay Zeka Motoru (LPR) baslatiliyor...
 start "LPR_ENGINE" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python lpr_engine\detector.py"
 
-timeout /t 4 >nul
+timeout /t 5 >nul
 
 echo [3/4] Masaustu Kamera Monitoru baslatiliyor...
-start "LPR_DESKTOP_CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python desktop_camera.py"
+start "LPR_DESKTOP_CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && set LPR_API=http://127.0.0.1:8000 && python desktop_camera.py"
 
 timeout /t 2 >nul
 
 echo [4/4] Dashboard (web) aciliyor...
-start http://localhost:8000
+start http://127.0.0.1:8000
 
 echo.
 echo ======================================================
 echo [BASARILI] Tum sistem bilesenleri acildi.
-echo - Backend API       : http://localhost:8000
-echo - LPR Engine        : http://localhost:5001
-echo - Dashboard (web)   : http://localhost:8000
+echo - Backend API       : http://127.0.0.1:8000
+echo - LPR Engine        : http://127.0.0.1:5001
+echo - Dashboard (web)   : http://127.0.0.1:8000
 echo - Kamera Monitoru   : Masaustu Uygulama
 echo ======================================================
 pause

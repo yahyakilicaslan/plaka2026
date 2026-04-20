@@ -59,30 +59,25 @@ if errorlevel 1 (
     echo ======================================================
     echo [KRITIK HATA] Kutuphaneler yuklenemedi!
     echo ======================================================
-    echo Olasi sebepler:
-    echo - Internet yok
-    echo - Python surumu uyumsuz
-    echo - requirements.txt icinde gecersiz paket var
     pause
     exit /b
 )
 
 echo.
-echo [BASARILI] Tum kutuphaneler hazir (Sanal Ortam icinde).
-echo ------------------------------------------------------
+echo [BASARILI] Tum kutuphaneler hazir.
 echo.
 
 echo [4/6] Klasorler kontrol ediliyor...
 if not exist captured_images (
     mkdir captured_images
     echo [BILGI] captured_images olusturuldu.
-) else (
-    echo [BILGI] captured_images zaten mevcut.
 )
 echo.
 
 echo [5/6] Sistem baslatiliyor...
 echo.
+
+set LPR_API=http://127.0.0.1:8000
 
 if exist backend\main.py (
     echo - Backend baslatiliyor...
@@ -92,7 +87,8 @@ if exist backend\main.py (
     echo [UYARI] backend\main.py bulunamadi!
 )
 
-timeout /t 3 >nul
+echo   Backend hazir olmasi icin 5 saniye bekleniyor...
+timeout /t 5 >nul
 
 if exist lpr_engine\detector.py (
     echo - Yapay Zeka Motoru baslatiliyor...
@@ -102,11 +98,11 @@ if exist lpr_engine\detector.py (
     echo [UYARI] lpr_engine\detector.py bulunamadi!
 )
 
-timeout /t 4 >nul
+timeout /t 5 >nul
 
 if exist desktop_camera.py (
     echo - Masaustu Kamera Monitoru baslatiliyor...
-    start "LPR DESKTOP CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python desktop_camera.py"
+    start "LPR DESKTOP CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && set LPR_API=http://127.0.0.1:8000 && python desktop_camera.py"
 ) else (
     color 0E
     echo [UYARI] desktop_camera.py bulunamadi!
@@ -115,13 +111,13 @@ if exist desktop_camera.py (
 timeout /t 3 >nul
 
 echo [6/6] Tarayici aciliyor...
-start http://localhost:8000
+start http://127.0.0.1:8000
 
 echo.
 echo ======================================================
 echo [BILGI] Sistem calisiyor. Bu pencereyi kapatmayin.
-echo   - Dashboard  : http://localhost:8000
-echo   - LPR Engine : http://localhost:5001
+echo   - Dashboard  : http://127.0.0.1:8000
+echo   - LPR Engine : http://127.0.0.1:5001
 echo   - Kamera     : Masaustu uygulama (2x2 canli grid)
 echo ======================================================
 pause
