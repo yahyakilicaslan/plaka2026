@@ -574,27 +574,44 @@ class CameraWidget(QFrame):
         self.open_btn.setText("GÖNDERİLİYOR...")
         self.info_label.setText("<span style='color:#f59e0b'>Kapıya tetik gönderiliyor...</span>")
 
-        def _on_done(data):
-            # UI güncelleme ana thread'te olmalı → QTimer.singleShot
-            def _apply():
-                self.open_btn.setEnabled(True)
-                self.open_btn.setText("KAPI AÇ")
-                if data.get("status") == "ok":
-                    self.info_label.setText(
-                        f"<span style='color:#10b981;font-weight:700'>✓ {data.get('message','Kapı açıldı')}</span>"
-                    )
-                    QTimer.singleShot(4000, lambda: self.info_label.setText("Hazır"))
-                else:
-                    QMessageBox.warning(self, "Kapı Açma Hatası",
-                                        data.get("message", "Bilinmeyen hata"))
-                    self.info_label.setText("Hazır")
-            QTimer.singleShot(0, _apply)
+        slot = self.slot
+        api = self.api_url
+        win = self.window()
 
-        _async_http("POST", f"{self.api_url}/api/gate/manual-open/{self.slot}", _on_done)
+        def _run():
+            try:
+                r = requests.post(f"{api}/api/gate/manual-open/{slot}", timeout=3)
+                data = r.json() if r.status_code == 200 else {"status": "error", "message": r.text}
+            except Exception as e:
+                data = {"status": "error", "message": str(e)}
+            # Main thread'e signal emit et
+            if hasattr(win, "_sig_manual_done"):
+                win._sig_manual_done.emit(slot, data)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def on_manual_result(self, data):
+        """Main thread - manuel kapı açma sonucu."""
+        self.open_btn.setEnabled(True)
+        self.open_btn.setText("KAPI AÇ")
+        if data.get("status") == "ok":
+            self.info_label.setText(
+                f"<span style='color:#10b981;font-weight:700'>✓ {data.get('message','Kapı açıldı')}</span>"
+            )
+            QTimer.singleShot(4000, lambda: self.info_label.setText("Hazır"))
+        else:
+            QMessageBox.warning(self, "Kapı Açma Hatası",
+                                data.get("message", "Bilinmeyen hata"))
+            self.info_label.setText("Hazır")
 
 
 # ----------------------------- Ana Pencere ----------------------------
 class MainWindow(QMainWindow):
+    # Thread-safe UI sinyalleri (worker thread -> main thread)
+    _sig_cameras = pyqtSignal(list)
+    _sig_backend_err = pyqtSignal(str)
+    _sig_residents = pyqtSignal(dict)
+    _sig_manual_done = pyqtSignal(int, dict)
+
     def __init__(self, api_url: str, ws_url: str, slot_count: int = 4):
         super().__init__()
         self.setWindowTitle("EVO SMART LPR — Canlı Kamera Monitörü")
@@ -605,6 +622,12 @@ class MainWindow(QMainWindow):
         self.ws_url = ws_url
         self.engine_url = ENGINE_URL
         self._site_cache = {}
+
+        # Thread-safe UI sinyallerini slot'lara bagla
+        self._sig_cameras.connect(self._on_cameras_received)
+        self._sig_backend_err.connect(self._on_backend_error)
+        self._sig_residents.connect(self._on_residents_received)
+        self._sig_manual_done.connect(self._on_manual_open_done)
 
         central = QWidget(); self.setCentralWidget(central)
         root = QVBoxLayout(central); root.setContentsMargins(12, 12, 12, 12); root.setSpacing(10)
@@ -664,22 +687,34 @@ class MainWindow(QMainWindow):
         print(f"[EVO DESKTOP] Kamera modu: MJPEG (engine'den cekiliyor - cakisma onleme)")
         print("=" * 60)
 
+    def _on_cameras_received(self, cams):
+        """UI main thread - backend'den kamera config geldi."""
+        self.status_hdr.setText(f"● Backend: bağlı ({self.api_url})")
+        self.status_hdr.setStyleSheet("color:#10b981; font-weight:700; font-size:11px;")
+        by_slot = {c.get("slot"): c for c in cams}
+        for slot, w in self.cameras.items():
+            cfg = by_slot.get(slot)
+            w.set_config(cfg)
+            self.readers[slot].set_enabled(bool(cfg))
+
+    def _on_backend_error(self, err_msg):
+        """UI main thread - backend hatası."""
+        short = (err_msg[:60] + "…") if len(err_msg) > 60 else err_msg
+        self.status_hdr.setText(f"● Backend: OFFLINE — {short}")
+        self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
+
+    def _on_residents_received(self, cache):
+        """UI main thread - residents cache güncellendi."""
+        self._site_cache = cache
+
+    def _on_manual_open_done(self, slot, data):
+        """UI main thread - kapı açma sonucu ilgili widget'a iletilir."""
+        w = self.cameras.get(slot)
+        if w:
+            w.on_manual_result(data)
+
     def refresh_cameras(self):
         url = f"{self.api_url}/api/cameras"
-
-        def _apply_success(cams):
-            self.status_hdr.setText(f"● Backend: bağlı ({self.api_url})")
-            self.status_hdr.setStyleSheet("color:#10b981; font-weight:700; font-size:11px;")
-            by_slot = {c.get("slot"): c for c in cams}
-            for slot, w in self.cameras.items():
-                cfg = by_slot.get(slot)
-                w.set_config(cfg)
-                self.readers[slot].set_enabled(bool(cfg))
-
-        def _apply_error(err_msg):
-            short = (err_msg[:60] + "…") if len(err_msg) > 60 else err_msg
-            self.status_hdr.setText(f"● Backend: OFFLINE — {short}")
-            self.status_hdr.setStyleSheet("color:#ef4444; font-weight:700; font-size:11px;")
 
         def _run():
             try:
@@ -689,20 +724,19 @@ class MainWindow(QMainWindow):
                         cams = r.json()
                     except Exception as e:
                         print(f"[BACKEND] JSON parse hatasi: {e}")
-                        QTimer.singleShot(0, lambda: _apply_error(f"JSON parse: {e}"))
+                        self._sig_backend_err.emit(f"JSON parse: {e}")
                         return
                     if isinstance(cams, list):
                         print(f"[BACKEND] Baglandi: {len(cams)} kamera config alindi. URL={url}")
-                        QTimer.singleShot(0, lambda: _apply_success(cams))
+                        self._sig_cameras.emit(cams)
                     else:
-                        QTimer.singleShot(0, lambda: _apply_error("beklenmeyen format"))
+                        self._sig_backend_err.emit("beklenmeyen format")
                 else:
                     print(f"[BACKEND] HTTP {r.status_code}: {url}")
-                    QTimer.singleShot(0, lambda: _apply_error(f"HTTP {r.status_code}"))
+                    self._sig_backend_err.emit(f"HTTP {r.status_code}")
             except Exception as e:
                 print(f"[BACKEND] Baglanti hatasi: {url} -> {e}")
-                err = str(e)
-                QTimer.singleShot(0, lambda: _apply_error(err))
+                self._sig_backend_err.emit(str(e))
         threading.Thread(target=_run, daemon=True).start()
 
     def refresh_residents(self):
@@ -724,9 +758,9 @@ class MainWindow(QMainWindow):
                                     "site": site, "block": block,
                                     "flat": flat, "name": person.get("name", "")
                                 }
-                    self._site_cache = cache
-            except Exception:
-                pass
+                    self._sig_residents.emit(cache)
+            except Exception as e:
+                print(f"[RESIDENTS] Hata: {e}")
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_frame(self, slot, frame):
