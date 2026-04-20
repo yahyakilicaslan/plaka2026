@@ -46,9 +46,11 @@ parser.add_argument("--api", default=os.environ.get("LPR_API", "http://127.0.0.1
 parser.add_argument("--slots", type=int, default=4, help="Kamera slot sayısı")
 args, _ = parser.parse_known_args()
 
-API_URL = args.api.rstrip("/")
+API_URL = args.api.strip().rstrip("/")
 # IPv6/IPv4 sorunu: localhost -> 127.0.0.1 zorla
 API_URL = API_URL.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
+# Her turlu beyaz bosluk temizle
+API_URL = "".join(API_URL.split())
 WS_URL = API_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
 SLOT_COUNT = args.slots
 

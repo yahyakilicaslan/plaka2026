@@ -56,9 +56,7 @@ py -m pip install -r requirements.txt
 if errorlevel 1 (
     color 0C
     echo.
-    echo ======================================================
     echo [KRITIK HATA] Kutuphaneler yuklenemedi!
-    echo ======================================================
     pause
     exit /b
 )
@@ -76,8 +74,6 @@ echo.
 
 echo [5/6] Sistem baslatiliyor...
 echo.
-
-set LPR_API=http://127.0.0.1:8000
 
 if exist backend\main.py (
     echo - Backend baslatiliyor...
@@ -102,7 +98,7 @@ timeout /t 5 >nul
 
 if exist desktop_camera.py (
     echo - Masaustu Kamera Monitoru baslatiliyor...
-    start "LPR DESKTOP CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && set LPR_API=http://127.0.0.1:8000 && python desktop_camera.py"
+    start "LPR DESKTOP CAMERA" cmd /k "chcp 65001 >nul && venv\Scripts\activate && python desktop_camera.py --api http://127.0.0.1:8000"
 ) else (
     color 0E
     echo [UYARI] desktop_camera.py bulunamadi!
